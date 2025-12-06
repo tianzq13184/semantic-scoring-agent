@@ -1,0 +1,78 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.so
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Jupyter / notebooks (如果未来增加)
+.ipynb_checkpoints/
+
+# -------------------------
+# FastAPI / Uvicorn
+# -------------------------
+*.log
+*.pid
+
+# Cache
+*.cache/
+cache/
+logs/
+
+# -------------------------
+# Pydantic / LangChain / OpenAI
+# -------------------------
+# (无特定文件，但忽略 runtime caches)
+*.lc_cache/
+
+# -------------------------
+# Streamlit
+# -------------------------
+.streamlit/
+**/.streamlit/
+
+# -------------------------
+# SQLite DB (如可重建，则忽略)
+answer_eval.db
+*.sqlite3
+*.db-journal
+
+# -------------------------
+# Environment variables
+# -------------------------
+.env
+.env.*
+!.env.example
+
+# -------------------------
+# IDE / Editor
+# -------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# -------------------------
+# macOS
+# -------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# -------------------------
+# Build / Distribution
+# -------------------------
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
