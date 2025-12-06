@@ -1,19 +1,23 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from dotenv import load_dotenv
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
-from .models import EvaluationRequest, EvaluationResult, LLMScorePayload
+from sqlalchemy import desc
+from typing import Optional
+from .models import (
+    EvaluationRequest, EvaluationResult, LLMScorePayload,
+    ReviewSaveRequest, ReviewSaveResponse,
+    EvaluationListResponse, EvaluationListItem, EvaluationDetail,
+    QuestionCreate, QuestionUpdate, QuestionItem, QuestionDetail, QuestionListResponse,
+    RubricCreate, RubricUpdate, RubricItem, RubricDetail, RubricListResponse, RubricActivateResponse
+)
 from .rubric_service import get_rubric
 from .llm_client import call_llm
-from .db import init_db, SessionLocal, AnswerEvaluation
+from .db import init_db, SessionLocal, AnswerEvaluation, Question, QuestionRubric
 
 load_dotenv()
 app = FastAPI(title="Answer Evaluation API")
-
-QUESTION_BANK = {
-    "Q2105": {"text": "简述如何在 Airflow 中实现可靠的依赖管理与失败恢复。", "topic":"airflow"}
-}
 
 def _model_metadata():
     provider = os.getenv("LLM_PROVIDER")
@@ -27,13 +31,37 @@ def _model_metadata():
 @app.on_event("startup")
 def on_startup():
     init_db()
+    # 可选：自动运行迁移（仅在开发环境）
+    # 生产环境建议手动运行迁移脚本
+    if os.getenv("AUTO_MIGRATE", "false").lower() == "true":
+        from .migrations import run_migrations
+        run_migrations()
+
+def _get_question(question_id: str) -> dict:
+    """从数据库获取题目信息"""
+    sess = SessionLocal()
+    try:
+        question = sess.query(Question).filter(Question.question_id == question_id).first()
+        if not question:
+            return None
+        return {
+            "text": question.text,
+            "topic": question.topic
+        }
+    finally:
+        sess.close()
 
 @app.post("/evaluate/short-answer", response_model=EvaluationResult)
 def evaluate(req: EvaluationRequest):
-    q = QUESTION_BANK.get(req.question_id)
+    q = _get_question(req.question_id)
     if not q:
         raise HTTPException(404, "question_id not found")
-    rubric, rubric_version = get_rubric(req.question_id, q["topic"], req.rubric_json)
+    rubric, rubric_version = get_rubric(
+        req.question_id, 
+        q["topic"], 
+        req.rubric_json,
+        question_text=q["text"]
+    )
     try:
         llm_json = call_llm(q["text"], rubric, req.student_answer)
     except Exception as exc:
@@ -79,3 +107,509 @@ def evaluate(req: EvaluationRequest):
         sess.close()
 
     return result
+
+
+@app.post("/review/save", response_model=ReviewSaveResponse)
+def save_review(req: ReviewSaveRequest):
+    """保存教师评分覆盖"""
+    sess = SessionLocal()
+    try:
+        # 查找评估记录
+        evaluation = sess.query(AnswerEvaluation).filter(
+            AnswerEvaluation.id == req.evaluation_id
+        ).first()
+        
+        if not evaluation:
+            raise HTTPException(404, f"Evaluation {req.evaluation_id} not found")
+        
+        # 更新评分
+        old_final_score = evaluation.final_score
+        evaluation.final_score = req.final_score
+        evaluation.reviewer_id = req.reviewer_id
+        evaluation.review_notes = req.review_notes
+        
+        sess.commit()
+        
+        return ReviewSaveResponse(
+            success=True,
+            message="Review saved successfully",
+            evaluation_id=evaluation.id,
+            auto_score=evaluation.auto_score,
+            final_score=evaluation.final_score
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to save review: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.get("/evaluations", response_model=EvaluationListResponse)
+def list_evaluations(
+    question_id: Optional[str] = Query(None, description="Filter by question ID"),
+    student_id: Optional[str] = Query(None, description="Filter by student ID"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Offset for pagination")
+):
+    """查询评估结果列表"""
+    sess = SessionLocal()
+    try:
+        query = sess.query(AnswerEvaluation)
+        
+        # 应用筛选条件
+        if question_id:
+            query = query.filter(AnswerEvaluation.question_id == question_id)
+        if student_id:
+            query = query.filter(AnswerEvaluation.student_id == student_id)
+        
+        # 获取总数
+        total = query.count()
+        
+        # 排序和分页
+        items = query.order_by(desc(AnswerEvaluation.created_at)).offset(offset).limit(limit).all()
+        
+        # 转换为响应模型
+        evaluation_items = [
+            EvaluationListItem(
+                id=item.id,
+                question_id=item.question_id,
+                student_id=item.student_id,
+                auto_score=item.auto_score,
+                final_score=item.final_score,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                reviewer_id=item.reviewer_id
+            )
+            for item in items
+        ]
+        
+        return EvaluationListResponse(
+            total=total,
+            items=evaluation_items
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to query evaluations: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.get("/evaluations/{evaluation_id}", response_model=EvaluationDetail)
+def get_evaluation_detail(evaluation_id: int):
+    """获取评估结果详情"""
+    sess = SessionLocal()
+    try:
+        evaluation = sess.query(AnswerEvaluation).filter(
+            AnswerEvaluation.id == evaluation_id
+        ).first()
+        
+        if not evaluation:
+            raise HTTPException(404, f"Evaluation {evaluation_id} not found")
+        
+        return EvaluationDetail(
+            id=evaluation.id,
+            question_id=evaluation.question_id,
+            student_id=evaluation.student_id,
+            student_answer=evaluation.student_answer,
+            auto_score=evaluation.auto_score,
+            final_score=evaluation.final_score,
+            dimension_scores_json=evaluation.dimension_scores_json,
+            model_version=evaluation.model_version,
+            rubric_version=evaluation.rubric_version,
+            review_notes=evaluation.review_notes,
+            reviewer_id=evaluation.reviewer_id,
+            raw_llm_output=evaluation.raw_llm_output,
+            created_at=evaluation.created_at,
+            updated_at=evaluation.updated_at
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get evaluation: {exc}") from exc
+    finally:
+        sess.close()
+
+
+# ==================== 题目管理接口 ====================
+
+@app.get("/questions", response_model=QuestionListResponse)
+def list_questions(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Offset for pagination")
+):
+    """查询题目列表"""
+    sess = SessionLocal()
+    try:
+        query = sess.query(Question)
+        
+        # 应用筛选条件
+        if topic:
+            query = query.filter(Question.topic == topic)
+        
+        # 获取总数
+        total = query.count()
+        
+        # 排序和分页
+        items = query.order_by(Question.created_at.desc()).offset(offset).limit(limit).all()
+        
+        # 转换为响应模型
+        question_items = [
+            QuestionItem(
+                id=q.id,
+                question_id=q.question_id,
+                text=q.text,
+                topic=q.topic,
+                created_at=q.created_at,
+                updated_at=q.updated_at
+            )
+            for q in items
+        ]
+        
+        return QuestionListResponse(
+            total=total,
+            items=question_items
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to query questions: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.get("/questions/{question_id}", response_model=QuestionDetail)
+def get_question(question_id: str):
+    """获取题目详情"""
+    sess = SessionLocal()
+    try:
+        question = sess.query(Question).filter(Question.question_id == question_id).first()
+        
+        if not question:
+            raise HTTPException(404, f"Question {question_id} not found")
+        
+        # 统计关联数据
+        rubrics_count = sess.query(QuestionRubric).filter(
+            QuestionRubric.question_id == question_id
+        ).count()
+        
+        evaluations_count = sess.query(AnswerEvaluation).filter(
+            AnswerEvaluation.question_id == question_id
+        ).count()
+        
+        return QuestionDetail(
+            id=question.id,
+            question_id=question.question_id,
+            text=question.text,
+            topic=question.topic,
+            created_at=question.created_at,
+            updated_at=question.updated_at,
+            rubrics_count=rubrics_count,
+            evaluations_count=evaluations_count
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get question: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.post("/questions", response_model=QuestionItem, status_code=201)
+def create_question(req: QuestionCreate):
+    """创建新题目"""
+    sess = SessionLocal()
+    try:
+        # 检查是否已存在
+        existing = sess.query(Question).filter(Question.question_id == req.question_id).first()
+        if existing:
+            raise HTTPException(400, f"Question {req.question_id} already exists")
+        
+        # 创建新题目
+        question = Question(
+            question_id=req.question_id,
+            text=req.text,
+            topic=req.topic
+        )
+        sess.add(question)
+        sess.commit()
+        sess.refresh(question)
+        
+        return QuestionItem(
+            id=question.id,
+            question_id=question.question_id,
+            text=question.text,
+            topic=question.topic,
+            created_at=question.created_at,
+            updated_at=question.updated_at
+        )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create question: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.put("/questions/{question_id}", response_model=QuestionItem)
+def update_question(question_id: str, req: QuestionUpdate):
+    """更新题目"""
+    sess = SessionLocal()
+    try:
+        question = sess.query(Question).filter(Question.question_id == question_id).first()
+        
+        if not question:
+            raise HTTPException(404, f"Question {question_id} not found")
+        
+        # 更新字段
+        if req.text is not None:
+            question.text = req.text
+        if req.topic is not None:
+            question.topic = req.topic
+        
+        sess.commit()
+        sess.refresh(question)
+        
+        return QuestionItem(
+            id=question.id,
+            question_id=question.question_id,
+            text=question.text,
+            topic=question.topic,
+            created_at=question.created_at,
+            updated_at=question.updated_at
+        )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update question: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.delete("/questions/{question_id}", status_code=204)
+def delete_question(question_id: str):
+    """删除题目"""
+    sess = SessionLocal()
+    try:
+        question = sess.query(Question).filter(Question.question_id == question_id).first()
+        
+        if not question:
+            raise HTTPException(404, f"Question {question_id} not found")
+        
+        sess.delete(question)
+        sess.commit()
+        
+        return None
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete question: {exc}") from exc
+    finally:
+        sess.close()
+
+
+# ==================== 评分标准管理接口 ====================
+
+@app.get("/questions/{question_id}/rubrics", response_model=RubricListResponse)
+def list_rubrics(question_id: str):
+    """查询题目的评分标准列表"""
+    sess = SessionLocal()
+    try:
+        # 检查题目是否存在
+        question = sess.query(Question).filter(Question.question_id == question_id).first()
+        if not question:
+            raise HTTPException(404, f"Question {question_id} not found")
+        
+        # 查询评分标准
+        rubrics = sess.query(QuestionRubric).filter(
+            QuestionRubric.question_id == question_id
+        ).order_by(QuestionRubric.created_at.desc()).all()
+        
+        rubric_items = [
+            RubricItem(
+                id=r.id,
+                question_id=r.question_id,
+                version=r.version,
+                is_active=r.is_active,
+                created_by=r.created_by,
+                created_at=r.created_at
+            )
+            for r in rubrics
+        ]
+        
+        return RubricListResponse(
+            total=len(rubric_items),
+            items=rubric_items
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to query rubrics: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.post("/questions/{question_id}/rubrics", response_model=RubricDetail, status_code=201)
+def create_rubric(question_id: str, req: RubricCreate):
+    """为题目创建评分标准"""
+    sess = SessionLocal()
+    try:
+        # 检查题目是否存在
+        question = sess.query(Question).filter(Question.question_id == question_id).first()
+        if not question:
+            raise HTTPException(404, f"Question {question_id} not found")
+        
+        # 检查版本是否已存在
+        existing = sess.query(QuestionRubric).filter(
+            QuestionRubric.question_id == question_id,
+            QuestionRubric.version == req.version
+        ).first()
+        if existing:
+            raise HTTPException(400, f"Rubric version {req.version} already exists for question {question_id}")
+        
+        # 如果设置为激活，先取消其他激活的评分标准
+        if req.is_active:
+            sess.query(QuestionRubric).filter(
+                QuestionRubric.question_id == question_id,
+                QuestionRubric.is_active == True
+            ).update({"is_active": False})
+        
+        # 创建新评分标准
+        rubric = QuestionRubric(
+            question_id=question_id,
+            version=req.version,
+            rubric_json=req.rubric_json,
+            is_active=req.is_active,
+            created_by=req.created_by
+        )
+        sess.add(rubric)
+        sess.commit()
+        sess.refresh(rubric)
+        
+        return RubricDetail(
+            id=rubric.id,
+            question_id=rubric.question_id,
+            version=rubric.version,
+            rubric_json=rubric.rubric_json,
+            is_active=rubric.is_active,
+            created_by=rubric.created_by,
+            created_at=rubric.created_at
+        )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create rubric: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.put("/rubrics/{rubric_id}", response_model=RubricDetail)
+def update_rubric(rubric_id: int, req: RubricUpdate):
+    """更新评分标准"""
+    sess = SessionLocal()
+    try:
+        rubric = sess.query(QuestionRubric).filter(QuestionRubric.id == rubric_id).first()
+        
+        if not rubric:
+            raise HTTPException(404, f"Rubric {rubric_id} not found")
+        
+        # 更新字段
+        if req.rubric_json is not None:
+            rubric.rubric_json = req.rubric_json
+        
+        if req.is_active is not None:
+            # 如果设置为激活，先取消同题目的其他激活评分标准
+            if req.is_active:
+                sess.query(QuestionRubric).filter(
+                    QuestionRubric.question_id == rubric.question_id,
+                    QuestionRubric.id != rubric_id,
+                    QuestionRubric.is_active == True
+                ).update({"is_active": False})
+            rubric.is_active = req.is_active
+        
+        sess.commit()
+        sess.refresh(rubric)
+        
+        return RubricDetail(
+            id=rubric.id,
+            question_id=rubric.question_id,
+            version=rubric.version,
+            rubric_json=rubric.rubric_json,
+            is_active=rubric.is_active,
+            created_by=rubric.created_by,
+            created_at=rubric.created_at
+        )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update rubric: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.post("/rubrics/{rubric_id}/activate", response_model=RubricActivateResponse)
+def activate_rubric(rubric_id: int):
+    """激活评分标准（同时取消同题目的其他激活评分标准）"""
+    sess = SessionLocal()
+    try:
+        rubric = sess.query(QuestionRubric).filter(QuestionRubric.id == rubric_id).first()
+        
+        if not rubric:
+            raise HTTPException(404, f"Rubric {rubric_id} not found")
+        
+        # 取消同题目的其他激活评分标准
+        sess.query(QuestionRubric).filter(
+            QuestionRubric.question_id == rubric.question_id,
+            QuestionRubric.id != rubric_id,
+            QuestionRubric.is_active == True
+        ).update({"is_active": False})
+        
+        # 激活当前评分标准
+        rubric.is_active = True
+        sess.commit()
+        
+        return RubricActivateResponse(
+            success=True,
+            message=f"Rubric {rubric.version} activated successfully",
+            rubric_id=rubric.id,
+            question_id=rubric.question_id,
+            version=rubric.version
+        )
+    except HTTPException:
+        raise
+    except SQLAlchemyError as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to activate rubric: {exc}") from exc
+    finally:
+        sess.close()
+
+
+@app.get("/rubrics/{rubric_id}", response_model=RubricDetail)
+def get_rubric_detail(rubric_id: int):
+    """获取评分标准详情"""
+    sess = SessionLocal()
+    try:
+        rubric = sess.query(QuestionRubric).filter(QuestionRubric.id == rubric_id).first()
+        
+        if not rubric:
+            raise HTTPException(404, f"Rubric {rubric_id} not found")
+        
+        return RubricDetail(
+            id=rubric.id,
+            question_id=rubric.question_id,
+            version=rubric.version,
+            rubric_json=rubric.rubric_json,
+            is_active=rubric.is_active,
+            created_by=rubric.created_by,
+            created_at=rubric.created_at
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get rubric: {exc}") from exc
+    finally:
+        sess.close()

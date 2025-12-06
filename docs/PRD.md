@@ -197,54 +197,13 @@ rubric_table → topic_default_rubric → LLM auto_generate
 
 ---
 
-## 6. RBAC 权限设计（Role-Based Access Control）
-
-### 6.1 角色矩阵
-
-| 角色 | 查看评估 | 创建评估 | 修改评分 | 管理题目 | 管理Rubric |
-|------|---------|---------|---------|---------|-----------|
-| Student | ✅ (自己的) | ✅ | ❌ | ❌ | ❌ |
-| Teacher | ✅ (班级内) | ✅ | ✅ | ✅ (自己的) | ✅ (自己的) |
-| Admin | ✅ (全部) | ✅ | ✅ | ✅ (全部) | ✅ (全部) |
-
-### 6.2 作用域模型
-
-- **层级**：Organization → Course → Class → User
-- 角色在某层生效并向下继承
-
-**例：** `Teacher@Course("DE101")` → 自动包含该课程下所有班级权限
-
-### 6.3 鉴权逻辑
-
-- **登录**：OIDC/OAuth2（GitLab / Google）
-- **JWT 中携带**：
-  - `sub`、`org_id`、`roles`、`scope`
-- **FastAPI 中间件**解析 JWT → 校验角色与资源动作匹配
-
-**示例代码：**
-
-```python
-@app.post("/evaluate/short-answer")
-@authorize("evaluation", "create", scope_from_body)
-def evaluate(...): ...
-```
-
-### 6.4 审计与安全
-
-- 所有更新/删除操作记录到 `audit_logs`
-- 学生端接口自动屏蔽敏感字段（`raw_output`, `reviewer`）
-- 支持 Postgres Row-Level Security 保障多租户隔离
-
----
-
-## 7. 技术方案（Tech Stack）
+## 6. 技术方案（Tech Stack）
 
 - **后端框架**：FastAPI
 - **前端框架**：Streamlit（MVP阶段），后续可迁移到 React/Vue
 - **LLM 集成**：LangChain + OpenAI/OpenRouter
 - **数据库**：SQLite（开发）→ PostgreSQL（生产）
 - **ORM**：SQLAlchemy
-- **认证**：OAuth2/OIDC（JWT）
 - **数据验证**：Pydantic
 
 ---
@@ -257,25 +216,23 @@ def evaluate(...): ...
 - [x] 基础数据持久化
 - [x] 简单UI界面
 
-### Phase 2: 数据模型完善
-- [ ] 实现 `questions` 表
-- [ ] 实现 `question_rubrics` 表
-- [ ] 完善 Rubric Service 数据库查询
-- [ ] 数据迁移脚本
+### Phase 2: 数据模型完善 ✅
+- [x] 实现 `questions` 表
+- [x] 实现 `question_rubrics` 表
+- [x] 完善 Rubric Service 数据库查询
+- [x] 数据迁移脚本
 
-### Phase 3: 教师审核功能
-- [ ] `POST /review/save` 接口
-- [ ] 教师审核UI界面
-- [ ] 评估结果列表查询接口
-- [ ] 评分对比展示（auto_score vs final_score）
+### Phase 2.3: 题目管理接口 ✅
+- [x] 题目 CRUD 接口
+- [x] 评分标准管理接口
 
-### Phase 4: 权限系统
-- [ ] OAuth2/OIDC 集成
-- [ ] JWT 中间件
-- [ ] 角色权限控制
-- [ ] 多租户支持
+### Phase 3: 教师审核功能 ✅
+- [x] `POST /review/save` 接口
+- [x] 教师审核UI界面
+- [x] 评估结果列表查询接口
+- [x] 评分对比展示（auto_score vs final_score）
 
-### Phase 5: 高级功能
+### Phase 4: 高级功能
 - [ ] 审计日志
 - [ ] Rubric 自动优化建议
 - [ ] 批量评估接口
@@ -298,7 +255,7 @@ def evaluate(...): ...
 |------|------|------|
 | LLM 输出不稳定 | 高 | JSON Schema 校验 + 重试机制 + 规则兜底 |
 | 评分标准不准确 | 高 | 支持人工修订 + 持续优化机制 |
-| 数据隐私安全 | 高 | 加密存储 + 访问控制 + 审计日志 |
+| 数据隐私安全 | 中 | 加密存储 + 审计日志 |
 | 成本控制 | 中 | 模型选择优化 + 缓存机制 |
 
 ---
@@ -309,5 +266,5 @@ def evaluate(...): ...
 - RAG 检索参考答案
 - 教学分析 Dashboard（Topic难度、错误趋势）
 - 教师修改反馈反向训练 Rubric
-- 多语言/多课程权限体系扩展
+- 多语言支持
 
