@@ -1,10 +1,10 @@
 import os
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends
 from dotenv import load_dotenv
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import desc
-from typing import Optional
+from typing import Optional, List
 from .models import (
     EvaluationRequest, EvaluationResult, LLMScorePayload,
     ReviewSaveRequest, ReviewSaveResponse,
@@ -14,7 +14,8 @@ from .models import (
 )
 from .rubric_service import get_rubric
 from .llm_client import call_llm
-from .db import init_db, SessionLocal, AnswerEvaluation, Question, QuestionRubric
+from .db import init_db, SessionLocal, AnswerEvaluation, Question, QuestionRubric, User
+from .auth import require_teacher, require_student, require_any, get_current_user, UserRole
 
 load_dotenv()
 app = FastAPI(title="Answer Evaluation API")
@@ -52,7 +53,12 @@ def _get_question(question_id: str) -> dict:
         sess.close()
 
 @app.post("/evaluate/short-answer", response_model=EvaluationResult)
-def evaluate(req: EvaluationRequest):
+def evaluate(req: EvaluationRequest, current_user: dict = Depends(require_any)):
+    """
+    评估学生答案
+    学生和老师都可以使用此接口
+    如果是学生，会自动记录 student_id
+    """
     q = _get_question(req.question_id)
     if not q:
         raise HTTPException(404, "question_id not found")
@@ -88,8 +94,12 @@ def evaluate(req: EvaluationRequest):
     # 落库
     sess = SessionLocal()
     try:
+        # 如果是学生，记录 student_id；如果是老师，student_id 为 None（老师可以代答）
+        student_id = current_user["id"] if current_user["role"] == "student" else None
+        
         ae = AnswerEvaluation(
             question_id=req.question_id,
+            student_id=student_id,
             student_answer=req.student_answer,
             auto_score=result.total_score,
             final_score=None,
@@ -110,8 +120,11 @@ def evaluate(req: EvaluationRequest):
 
 
 @app.post("/review/save", response_model=ReviewSaveResponse)
-def save_review(req: ReviewSaveRequest):
-    """保存教师评分覆盖"""
+def save_review(req: ReviewSaveRequest, current_user: dict = Depends(require_teacher)):
+    """
+    保存教师评分覆盖
+    仅老师可以使用
+    """
     sess = SessionLocal()
     try:
         # 查找评估记录
@@ -122,10 +135,9 @@ def save_review(req: ReviewSaveRequest):
         if not evaluation:
             raise HTTPException(404, f"Evaluation {req.evaluation_id} not found")
         
-        # 更新评分
-        old_final_score = evaluation.final_score
+        # 更新评分，使用当前登录的老师ID
         evaluation.final_score = req.final_score
-        evaluation.reviewer_id = req.reviewer_id
+        evaluation.reviewer_id = current_user["id"]  # 使用当前登录用户ID
         evaluation.review_notes = req.review_notes
         
         sess.commit()
@@ -151,18 +163,29 @@ def list_evaluations(
     question_id: Optional[str] = Query(None, description="Filter by question ID"),
     student_id: Optional[str] = Query(None, description="Filter by student ID"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
-    offset: int = Query(0, ge=0, description="Offset for pagination")
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    current_user: dict = Depends(require_any)
 ):
-    """查询评估结果列表"""
+    """
+    查询评估结果列表
+    学生只能查看自己的结果，老师可以查看所有结果
+    """
     sess = SessionLocal()
     try:
         query = sess.query(AnswerEvaluation)
+        
+        # 权限控制：学生只能查看自己的结果
+        if current_user["role"] == "student":
+            query = query.filter(AnswerEvaluation.student_id == current_user["id"])
+        # 老师可以查看所有结果，但如果指定了 student_id，则按指定筛选
         
         # 应用筛选条件
         if question_id:
             query = query.filter(AnswerEvaluation.question_id == question_id)
         if student_id:
-            query = query.filter(AnswerEvaluation.student_id == student_id)
+            # 老师可以按 student_id 筛选，学生只能看自己的（已在上面处理）
+            if current_user["role"] == "teacher":
+                query = query.filter(AnswerEvaluation.student_id == student_id)
         
         # 获取总数
         total = query.count()
@@ -196,8 +219,11 @@ def list_evaluations(
 
 
 @app.get("/evaluations/{evaluation_id}", response_model=EvaluationDetail)
-def get_evaluation_detail(evaluation_id: int):
-    """获取评估结果详情"""
+def get_evaluation_detail(evaluation_id: int, current_user: dict = Depends(require_any)):
+    """
+    获取评估结果详情
+    学生只能查看自己的结果，老师可以查看所有结果
+    """
     sess = SessionLocal()
     try:
         evaluation = sess.query(AnswerEvaluation).filter(
@@ -206,6 +232,11 @@ def get_evaluation_detail(evaluation_id: int):
         
         if not evaluation:
             raise HTTPException(404, f"Evaluation {evaluation_id} not found")
+        
+        # 权限控制：学生只能查看自己的结果
+        if current_user["role"] == "student":
+            if evaluation.student_id != current_user["id"]:
+                raise HTTPException(403, "无权访问此评估结果")
         
         return EvaluationDetail(
             id=evaluation.id,
@@ -237,9 +268,13 @@ def get_evaluation_detail(evaluation_id: int):
 def list_questions(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
-    offset: int = Query(0, ge=0, description="Offset for pagination")
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+    current_user: dict = Depends(require_any)
 ):
-    """查询题目列表"""
+    """
+    查询题目列表
+    学生和老师都可以查看题目列表（用于答题）
+    """
     sess = SessionLocal()
     try:
         query = sess.query(Question)
@@ -278,8 +313,11 @@ def list_questions(
 
 
 @app.get("/questions/{question_id}", response_model=QuestionDetail)
-def get_question(question_id: str):
-    """获取题目详情"""
+def get_question(question_id: str, current_user: dict = Depends(require_any)):
+    """
+    获取题目详情
+    学生和老师都可以查看题目详情
+    """
     sess = SessionLocal()
     try:
         question = sess.query(Question).filter(Question.question_id == question_id).first()
@@ -315,8 +353,11 @@ def get_question(question_id: str):
 
 
 @app.post("/questions", response_model=QuestionItem, status_code=201)
-def create_question(req: QuestionCreate):
-    """创建新题目"""
+def create_question(req: QuestionCreate, current_user: dict = Depends(require_teacher)):
+    """
+    创建新题目
+    仅老师可以使用
+    """
     sess = SessionLocal()
     try:
         # 检查是否已存在
@@ -352,8 +393,11 @@ def create_question(req: QuestionCreate):
 
 
 @app.put("/questions/{question_id}", response_model=QuestionItem)
-def update_question(question_id: str, req: QuestionUpdate):
-    """更新题目"""
+def update_question(question_id: str, req: QuestionUpdate, current_user: dict = Depends(require_teacher)):
+    """
+    更新题目
+    仅老师可以使用
+    """
     sess = SessionLocal()
     try:
         question = sess.query(Question).filter(Question.question_id == question_id).first()
@@ -388,8 +432,11 @@ def update_question(question_id: str, req: QuestionUpdate):
 
 
 @app.delete("/questions/{question_id}", status_code=204)
-def delete_question(question_id: str):
-    """删除题目"""
+def delete_question(question_id: str, current_user: dict = Depends(require_teacher)):
+    """
+    删除题目
+    仅老师可以使用
+    """
     sess = SessionLocal()
     try:
         question = sess.query(Question).filter(Question.question_id == question_id).first()
@@ -413,8 +460,11 @@ def delete_question(question_id: str):
 # ==================== 评分标准管理接口 ====================
 
 @app.get("/questions/{question_id}/rubrics", response_model=RubricListResponse)
-def list_rubrics(question_id: str):
-    """查询题目的评分标准列表"""
+def list_rubrics(question_id: str, current_user: dict = Depends(require_any)):
+    """
+    查询题目的评分标准列表
+    学生和老师都可以查看（用于了解评分标准）
+    """
     sess = SessionLocal()
     try:
         # 检查题目是否存在
@@ -452,8 +502,11 @@ def list_rubrics(question_id: str):
 
 
 @app.post("/questions/{question_id}/rubrics", response_model=RubricDetail, status_code=201)
-def create_rubric(question_id: str, req: RubricCreate):
-    """为题目创建评分标准"""
+def create_rubric(question_id: str, req: RubricCreate, current_user: dict = Depends(require_teacher)):
+    """
+    为题目创建评分标准
+    仅老师可以使用
+    """
     sess = SessionLocal()
     try:
         # 检查题目是否存在
@@ -476,13 +529,13 @@ def create_rubric(question_id: str, req: RubricCreate):
                 QuestionRubric.is_active == True
             ).update({"is_active": False})
         
-        # 创建新评分标准
+        # 创建新评分标准，使用当前登录用户ID
         rubric = QuestionRubric(
             question_id=question_id,
             version=req.version,
             rubric_json=req.rubric_json,
             is_active=req.is_active,
-            created_by=req.created_by
+            created_by=current_user["id"]  # 使用当前登录用户ID
         )
         sess.add(rubric)
         sess.commit()
@@ -507,8 +560,11 @@ def create_rubric(question_id: str, req: RubricCreate):
 
 
 @app.put("/rubrics/{rubric_id}", response_model=RubricDetail)
-def update_rubric(rubric_id: int, req: RubricUpdate):
-    """更新评分标准"""
+def update_rubric(rubric_id: int, req: RubricUpdate, current_user: dict = Depends(require_teacher)):
+    """
+    更新评分标准
+    仅老师可以使用
+    """
     sess = SessionLocal()
     try:
         rubric = sess.query(QuestionRubric).filter(QuestionRubric.id == rubric_id).first()
@@ -552,8 +608,11 @@ def update_rubric(rubric_id: int, req: RubricUpdate):
 
 
 @app.post("/rubrics/{rubric_id}/activate", response_model=RubricActivateResponse)
-def activate_rubric(rubric_id: int):
-    """激活评分标准（同时取消同题目的其他激活评分标准）"""
+def activate_rubric(rubric_id: int, current_user: dict = Depends(require_teacher)):
+    """
+    激活评分标准（同时取消同题目的其他激活评分标准）
+    仅老师可以使用
+    """
     sess = SessionLocal()
     try:
         rubric = sess.query(QuestionRubric).filter(QuestionRubric.id == rubric_id).first()
@@ -589,7 +648,11 @@ def activate_rubric(rubric_id: int):
 
 
 @app.get("/rubrics/{rubric_id}", response_model=RubricDetail)
-def get_rubric_detail(rubric_id: int):
+def get_rubric_detail(rubric_id: int, current_user: dict = Depends(require_any)):
+    """
+    获取评分标准详情
+    学生和老师都可以查看
+    """
     """获取评分标准详情"""
     sess = SessionLocal()
     try:

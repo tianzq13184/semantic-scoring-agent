@@ -127,3 +127,19 @@ class RubricActivateResponse(BaseModel):
     rubric_id: int
     question_id: str
     version: str
+
+
+# 用户相关模型
+class UserCreate(BaseModel):
+    id: str  # 用户ID（学号/工号）
+    username: str
+    role: str  # "student" 或 "teacher"
+
+class UserItem(BaseModel):
+    id: str
+    username: str
+    role: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

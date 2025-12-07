@@ -10,9 +10,10 @@ st.set_page_config(page_title="Answer Evaluator", layout="wide")
 
 load_dotenv()
 
+# 尝试从 secrets 或环境变量获取 API_BASE
 try:
-    API_BASE = st.secrets.get("API_BASE")
-except FileNotFoundError:
+    API_BASE = st.secrets.get("API_BASE", None)
+except (FileNotFoundError, AttributeError):
     API_BASE = None
 
 API_BASE = API_BASE or os.getenv("API_BASE", "http://127.0.0.1:8000")
@@ -20,10 +21,36 @@ API_BASE = API_BASE or os.getenv("API_BASE", "http://127.0.0.1:8000")
 # 页面选择
 page = st.sidebar.selectbox("页面", ["评估答案", "评估结果列表", "评估详情"])
 
+# 加载题目列表（缓存60秒）
+@st.cache_data(ttl=60)
+def load_questions():
+    """从API加载题目列表"""
+    try:
+        r = requests.get(f"{API_BASE}/questions", params={"limit": 100}, timeout=5)
+        if r.status_code == 200:
+            return r.json()["items"]
+    except Exception as e:
+        st.sidebar.warning(f"加载题目列表失败: {e}")
+    return []
+
 if page == "评估答案":
     with st.sidebar:
         st.title("Answer Evaluator")
-        question_id = st.selectbox("Question ID", ["Q2105"])
+        
+        # 从数据库动态加载题目列表
+        questions = load_questions()
+        if questions:
+            question_options = [q["question_id"] for q in questions]
+            question_id = st.selectbox("Question ID", question_options)
+            # 显示题目信息
+            selected_question = next((q for q in questions if q["question_id"] == question_id), None)
+            if selected_question:
+                st.caption(f"主题: {selected_question.get('topic', 'N/A')}")
+        else:
+            # 回退到硬编码（如果API不可用）
+            question_id = st.selectbox("Question ID", ["Q2105"])
+            st.warning("无法加载题目列表，使用默认题目")
+        
         with_rubric = st.checkbox("I already have a rubric JSON", value=False)
         rubric_text = ""
         if with_rubric:
@@ -41,14 +68,15 @@ if page == "评估答案":
         if st.button("Evaluate", type="primary", use_container_width=True, disabled=not has_answer):
             payload = {
                 "question_id": question_id,
-                "student_answer": student_answer,
-                "with_rubric": bool(with_rubric)
+                "student_answer": student_answer
             }
+            # 如果用户提供了评分标准，添加到 payload
             if with_rubric and rubric_text.strip():
                 try:
                     payload["rubric_json"] = json.loads(rubric_text)
                 except Exception as e:
                     st.error(f"Rubric JSON invalid: {e}")
+                    st.stop()  # 停止执行，不发送请求
             try:
                 with st.spinner("Evaluating..."):
                     r = requests.post(f"{API_BASE}/evaluate/short-answer", json=payload, timeout=60)

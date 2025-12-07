@@ -13,6 +13,18 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 Base = declarative_base()
 
 
+class User(Base):
+    """用户表"""
+    __tablename__ = "users"
+    id = Column(String, primary_key=True)  # 用户ID（可以是学号、工号等）
+    username = Column(String, nullable=False, index=True)
+    role = Column(String, nullable=False, index=True)  # "student" 或 "teacher"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    evaluations = relationship("AnswerEvaluation", back_populates="user", foreign_keys="AnswerEvaluation.student_id")
+
+
 class Question(Base):
     __tablename__ = "questions"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -45,7 +57,7 @@ class AnswerEvaluation(Base):
     __tablename__ = "answer_evaluations"
     id = Column(Integer, primary_key=True, autoincrement=True)
     question_id = Column(String, ForeignKey("questions.question_id", ondelete="SET NULL"), index=True)
-    student_id = Column(String, nullable=True, index=True)
+    student_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     student_answer = Column(Text)
     auto_score = Column(Float)
     final_score = Column(Float, nullable=True)
@@ -53,13 +65,14 @@ class AnswerEvaluation(Base):
     model_version = Column(String)
     rubric_version = Column(String)
     raw_llm_output = Column(JSON)
-    reviewer_id = Column(String, nullable=True)
+    reviewer_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     review_notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
     question = relationship("Question", back_populates="evaluations")
+    user = relationship("User", foreign_keys=[student_id], back_populates="evaluations")
 
 
 def init_db():
