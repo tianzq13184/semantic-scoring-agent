@@ -10,7 +10,8 @@ from .models import (
     ReviewSaveRequest, ReviewSaveResponse,
     EvaluationListResponse, EvaluationListItem, EvaluationDetail,
     QuestionCreate, QuestionUpdate, QuestionItem, QuestionDetail, QuestionListResponse,
-    RubricCreate, RubricUpdate, RubricItem, RubricDetail, RubricListResponse, RubricActivateResponse
+    RubricCreate, RubricUpdate, RubricItem, RubricDetail, RubricListResponse, RubricActivateResponse,
+    UserCreate, UserItem
 )
 from .rubric_service import get_rubric
 from .llm_client import call_llm
@@ -460,7 +461,7 @@ def delete_question(question_id: str, current_user: dict = Depends(require_teach
 # ==================== 评分标准管理接口 ====================
 
 @app.get("/questions/{question_id}/rubrics", response_model=RubricListResponse)
-def list_rubrics(question_id: str, current_user: dict = Depends(require_any)):
+def list_rubrics(question_id: str, current_user: dict = Depends(require_teacher)):
     """
     查询题目的评分标准列表
     学生和老师都可以查看（用于了解评分标准）
@@ -653,7 +654,6 @@ def get_rubric_detail(rubric_id: int, current_user: dict = Depends(require_any))
     获取评分标准详情
     学生和老师都可以查看
     """
-    """获取评分标准详情"""
     sess = SessionLocal()
     try:
         rubric = sess.query(QuestionRubric).filter(QuestionRubric.id == rubric_id).first()
@@ -674,5 +674,58 @@ def get_rubric_detail(rubric_id: int, current_user: dict = Depends(require_any))
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to get rubric: {exc}") from exc
+    finally:
+        sess.close()
+
+
+# 用户管理接口（仅老师）
+@app.post("/users", response_model=UserItem, status_code=201)
+def create_user(req: UserCreate, current_user: dict = Depends(require_teacher)):
+    """创建用户（仅老师）"""
+    sess = SessionLocal()
+    try:
+        existing = sess.query(User).filter(User.id == req.id).first()
+        if existing:
+            raise HTTPException(400, f"User {req.id} already exists")
+        if req.role not in ["student", "teacher"]:
+            raise HTTPException(400, "Role must be 'student' or 'teacher'")
+        user = User(id=req.id, username=req.username, role=req.role)
+        sess.add(user)
+        sess.commit()
+        sess.refresh(user)
+        return UserItem(id=user.id, username=user.username, role=user.role, created_at=user.created_at)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        sess.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {exc}") from exc
+    finally:
+        sess.close()
+
+@app.get("/users", response_model=List[UserItem])
+def list_users(current_user: dict = Depends(require_teacher)):
+    """获取用户列表（仅老师）"""
+    sess = SessionLocal()
+    try:
+        users = sess.query(User).order_by(User.created_at.desc()).all()
+        return [UserItem(id=u.id, username=u.username, role=u.role, created_at=u.created_at) for u in users]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list users: {exc}") from exc
+    finally:
+        sess.close()
+
+@app.get("/users/{user_id}", response_model=UserItem)
+def get_user(user_id: str, current_user: dict = Depends(require_teacher)):
+    """获取用户详情（仅老师）"""
+    sess = SessionLocal()
+    try:
+        user = sess.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(404, f"User {user_id} not found")
+        return UserItem(id=user.id, username=user.username, role=user.role, created_at=user.created_at)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to get user: {exc}") from exc
     finally:
         sess.close()

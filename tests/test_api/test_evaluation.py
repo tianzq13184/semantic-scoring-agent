@@ -10,7 +10,7 @@ class TestEvaluateShortAnswer:
     """测试 POST /evaluate/short-answer"""
     
     @patch('api.main.call_llm')
-    def test_successful_evaluation(self, mock_call_llm, client, db_session, sample_question, monkeypatch):
+    def test_successful_evaluation(self, mock_call_llm, client, db_session, sample_question, auth_headers_student, monkeypatch):
         """测试成功评估"""
         # Mock LLM 响应
         mock_call_llm.return_value = {
@@ -35,7 +35,8 @@ class TestEvaluateShortAnswer:
             json={
                 "question_id": sample_question.question_id,
                 "student_answer": "这是一个足够长的答案，用于测试评估功能。"
-            }
+            },
+            headers=auth_headers_student
         )
         
         assert response.status_code == 200
@@ -44,7 +45,7 @@ class TestEvaluateShortAnswer:
         assert "dimension_breakdown" in data
         assert data["question_id"] == sample_question.question_id
     
-    def test_question_not_found(self, client, db_session, monkeypatch):
+    def test_question_not_found(self, client, db_session, auth_headers_student, monkeypatch):
         """测试题目不存在"""
         import api.main as main_module
         monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
@@ -54,25 +55,27 @@ class TestEvaluateShortAnswer:
             json={
                 "question_id": "NON_EXISTENT",
                 "student_answer": "这是一个足够长的答案。"
-            }
+            },
+            headers=auth_headers_student
         )
         
         assert response.status_code == 404
     
-    def test_invalid_answer_length(self, client):
+    def test_invalid_answer_length(self, client, auth_headers_student):
         """测试答案长度验证"""
         response = client.post(
             "/evaluate/short-answer",
             json={
                 "question_id": "Q2105",
                 "student_answer": "短"  # 太短
-            }
+            },
+            headers=auth_headers_student
         )
         
         assert response.status_code == 422  # Validation error
     
     @patch('api.main.call_llm')
-    def test_llm_call_failure(self, mock_call_llm, client, db_session, sample_question, monkeypatch):
+    def test_llm_call_failure(self, mock_call_llm, client, db_session, sample_question, auth_headers_student, monkeypatch):
         """测试 LLM 调用失败"""
         mock_call_llm.side_effect = Exception("LLM API error")
         
@@ -84,14 +87,15 @@ class TestEvaluateShortAnswer:
             json={
                 "question_id": sample_question.question_id,
                 "student_answer": "这是一个足够长的答案。"
-            }
+            },
+            headers=auth_headers_student
         )
         
         assert response.status_code == 502
         assert "LLM call failed" in response.json()["detail"]
     
     @patch('api.main.call_llm')
-    def test_custom_rubric(self, mock_call_llm, client, db_session, sample_question, monkeypatch):
+    def test_custom_rubric(self, mock_call_llm, client, db_session, sample_question, auth_headers_student, monkeypatch):
         """测试使用自定义评分标准"""
         mock_call_llm.return_value = {
             "total_score": 8.0,
@@ -112,7 +116,8 @@ class TestEvaluateShortAnswer:
                     "version": "custom-v1",
                     "dimensions": {"accuracy": 1}
                 }
-            }
+            },
+            headers=auth_headers_student
         )
         
         assert response.status_code == 200

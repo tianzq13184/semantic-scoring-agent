@@ -18,8 +18,74 @@ except (FileNotFoundError, AttributeError):
 
 API_BASE = API_BASE or os.getenv("API_BASE", "http://127.0.0.1:8000")
 
+# 获取请求头（包含用户token）
+def get_headers():
+    """获取包含用户认证信息的请求头"""
+    headers = {}
+    if "user_token" in st.session_state:
+        headers["X-User-Token"] = st.session_state.user_token
+    return headers
+
+# ==================== 用户登录/角色选择 ====================
+# 初始化 session state
+if "current_user" not in st.session_state:
+    st.session_state.current_user = None
+if "user_token" not in st.session_state:
+    st.session_state.user_token = None
+
+# 侧边栏：用户登录
+with st.sidebar:
+    st.title("🔐 登录")
+    
+    if st.session_state.current_user is None:
+        # 未登录状态：显示登录表单
+        user_id = st.selectbox("选择用户", ["teacher001", "student001"], help="选择要登录的用户ID")
+        
+        if st.button("登录", type="primary", use_container_width=True):
+            # 验证用户（简化实现：直接使用用户ID作为token）
+            try:
+                r = requests.get(f"{API_BASE}/users/{user_id}", headers={"X-User-Token": user_id}, timeout=5)
+                if r.status_code == 200:
+                    user_data = r.json()
+                    st.session_state.current_user = user_data
+                    st.session_state.user_token = user_id
+                    st.success(f"登录成功！欢迎，{user_data['username']}")
+                    st.rerun()
+                elif r.status_code == 401:
+                    st.error("需要登录")
+                else:
+                    st.error(f"登录失败: {r.status_code}")
+            except Exception as e:
+                st.error(f"登录失败: {e}")
+    else:
+        # 已登录状态：显示用户信息和退出按钮
+        user = st.session_state.current_user
+        st.success(f"✅ {user['username']}")
+        st.caption(f"角色: {'👨‍🏫 老师' if user['role'] == 'teacher' else '👨‍🎓 学生'}")
+        
+        if st.button("退出登录", use_container_width=True):
+            st.session_state.current_user = None
+            st.session_state.user_token = None
+            st.rerun()
+
+# 如果未登录，显示提示
+if st.session_state.current_user is None:
+    st.warning("请先登录")
+    st.stop()
+
+# 获取当前用户信息
+current_user = st.session_state.current_user
+user_role = current_user["role"]
+user_token = st.session_state.user_token
+
+# 根据角色显示不同的页面选项
+if user_role == "teacher":
+    pages = ["评估答案", "评估结果列表", "评估详情", "题目管理", "评分标准管理"]
+else:
+    pages = ["评估答案", "评估结果列表", "评估详情"]
+
 # 页面选择
-page = st.sidebar.selectbox("页面", ["评估答案", "评估结果列表", "评估详情"])
+page = st.sidebar.selectbox("页面", pages)
 
 # 加载题目列表（缓存60秒）
 @st.cache_data(ttl=60)
@@ -38,7 +104,19 @@ if page == "评估答案":
         st.title("Answer Evaluator")
         
         # 从数据库动态加载题目列表
-        questions = load_questions()
+        @st.cache_data(ttl=60)
+        def load_questions_with_auth():
+            """从API加载题目列表（带认证）"""
+            try:
+                headers = {"X-User-Token": user_token}
+                r = requests.get(f"{API_BASE}/questions", params={"limit": 100}, headers=headers, timeout=5)
+                if r.status_code == 200:
+                    return r.json()["items"]
+            except Exception as e:
+                st.sidebar.warning(f"加载题目列表失败: {e}")
+            return []
+        
+        questions = load_questions_with_auth()
         if questions:
             question_options = [q["question_id"] for q in questions]
             question_id = st.selectbox("Question ID", question_options)
@@ -79,7 +157,7 @@ if page == "评估答案":
                     st.stop()  # 停止执行，不发送请求
             try:
                 with st.spinner("Evaluating..."):
-                    r = requests.post(f"{API_BASE}/evaluate/short-answer", json=payload, timeout=60)
+                    r = requests.post(f"{API_BASE}/evaluate/short-answer", json=payload, headers=get_headers(), timeout=60)
                 if r.status_code == 200:
                     result = r.json()
                     st.session_state["last_result"] = result
@@ -143,7 +221,7 @@ elif page == "评估结果列表":
         
         try:
             with st.spinner("加载中..."):
-                r = requests.get(f"{API_BASE}/evaluations", params=params, timeout=10)
+                r = requests.get(f"{API_BASE}/evaluations", params=params, headers=get_headers(), timeout=10)
             if r.status_code == 200:
                 data = r.json()
                 st.session_state["evaluation_list"] = data
@@ -187,7 +265,8 @@ elif page == "评估详情":
     if st.button("加载详情", type="primary") or evaluation_id:
         try:
             with st.spinner("加载中..."):
-                r = requests.get(f"{API_BASE}/evaluations/{evaluation_id}", timeout=10)
+                headers = {"X-User-Token": user_token}
+                r = requests.get(f"{API_BASE}/evaluations/{evaluation_id}", headers=headers, timeout=10)
             if r.status_code == 200:
                 detail = r.json()
                 st.session_state["evaluation_detail"] = detail
@@ -231,44 +310,44 @@ elif page == "评估详情":
             st.write(f"**模型版本:** {detail['model_version']}")
             st.write(f"**评分标准版本:** {detail['rubric_version']}")
         
-        # 教师审核
-        st.markdown("---")
-        st.subheader("教师审核")
-        
-        with st.form("review_form"):
-            final_score = st.number_input(
-                "最终评分",
-                min_value=0.0,
-                max_value=10.0,
-                value=float(detail['final_score']) if detail['final_score'] else float(detail['auto_score']) if detail['auto_score'] else 0.0,
-                step=0.1
-            )
-            reviewer_id = st.text_input("审核人 ID", value=detail.get('reviewer_id', ''))
-            review_notes = st.text_area("审核备注", value=detail.get('review_notes', ''), height=100)
+        # 教师审核（仅老师可见）
+        if user_role == "teacher":
+            st.markdown("---")
+            st.subheader("教师审核")
             
-            submitted = st.form_submit_button("保存审核", type="primary")
-            
-            if submitted:
-                payload = {
-                    "evaluation_id": detail['id'],
-                    "final_score": final_score,
-                    "reviewer_id": reviewer_id if reviewer_id else None,
-                    "review_notes": review_notes if review_notes else None
-                }
-                try:
-                    with st.spinner("保存中..."):
-                        r = requests.post(f"{API_BASE}/review/save", json=payload, timeout=10)
-                    if r.status_code == 200:
-                        result = r.json()
-                        st.success(f"审核已保存！自动评分: {result['auto_score']:.2f}, 最终评分: {result['final_score']:.2f}")
-                        # 清除缓存，重新加载
-                        if "evaluation_detail" in st.session_state:
-                            del st.session_state["evaluation_detail"]
-                        st.rerun()
-                    else:
-                        st.error(f"保存失败: {r.status_code} {r.text}")
-                except Exception as e:
-                    st.error(f"Request failed: {e}")
+            with st.form("review_form"):
+                final_score = st.number_input(
+                    "最终评分",
+                    min_value=0.0,
+                    max_value=10.0,
+                    value=float(detail['final_score']) if detail['final_score'] else float(detail['auto_score']) if detail['auto_score'] else 0.0,
+                    step=0.1
+                )
+                review_notes = st.text_area("审核备注", value=detail.get('review_notes', ''), height=100)
+                
+                submitted = st.form_submit_button("保存审核", type="primary")
+                
+                if submitted:
+                    payload = {
+                        "evaluation_id": detail['id'],
+                        "final_score": final_score,
+                        "review_notes": review_notes if review_notes else None
+                    }
+                    try:
+                        with st.spinner("保存中..."):
+                            headers = {"X-User-Token": user_token}
+                            r = requests.post(f"{API_BASE}/review/save", json=payload, headers=headers, timeout=10)
+                        if r.status_code == 200:
+                            result = r.json()
+                            st.success(f"审核已保存！自动评分: {result['auto_score']:.2f}, 最终评分: {result['final_score']:.2f}")
+                            # 清除缓存，重新加载
+                            if "evaluation_detail" in st.session_state:
+                                del st.session_state["evaluation_detail"]
+                            st.rerun()
+                        else:
+                            st.error(f"保存失败: {r.status_code} {r.text}")
+                    except Exception as e:
+                        st.error(f"Request failed: {e}")
         
         # 显示现有审核信息
         if detail.get('review_notes'):
