@@ -10,8 +10,14 @@ class TestEvaluateShortAnswer:
     """测试 POST /evaluate/short-answer"""
     
     @patch('api.main.call_llm')
-    def test_successful_evaluation(self, mock_call_llm, client, db_session, sample_question, auth_headers_student, monkeypatch):
+    def test_successful_evaluation(self, mock_call_llm, client, sample_question, auth_headers_student):
         """测试成功评估"""
+        print("\n" + "="*80)
+        print("开始测试: test_successful_evaluation")
+        print(f"Mock对象: {mock_call_llm}")
+        print(f"Mock是否已设置: {hasattr(mock_call_llm, 'return_value')}")
+        print("="*80)
+        
         # Mock LLM 响应
         mock_call_llm.return_value = {
             "total_score": 7.5,
@@ -26,9 +32,8 @@ class TestEvaluateShortAnswer:
             "improvement_recommendations": ["tip1"]
         }
         
-        # 使用 monkeypatch 替换 SessionLocal
-        import api.main as main_module
-        monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
+        print(f"\n发送请求: question_id={sample_question.question_id}")
+        print(f"Mock return_value已设置: {mock_call_llm.return_value is not None}")
         
         response = client.post(
             "/evaluate/short-answer",
@@ -39,17 +44,21 @@ class TestEvaluateShortAnswer:
             headers=auth_headers_student
         )
         
+        print(f"\n收到响应: status_code={response.status_code}")
+        print(f"Mock是否被调用: {mock_call_llm.called}")
+        if mock_call_llm.called:
+            print(f"Mock调用次数: {mock_call_llm.call_count}")
+            print(f"Mock调用参数: {mock_call_llm.call_args}")
+        print("="*80 + "\n")
+        
         assert response.status_code == 200
         data = response.json()
         assert data["total_score"] == 7.5
         assert "dimension_breakdown" in data
         assert data["question_id"] == sample_question.question_id
     
-    def test_question_not_found(self, client, db_session, auth_headers_student, monkeypatch):
+    def test_question_not_found(self, client, auth_headers_student):
         """测试题目不存在"""
-        import api.main as main_module
-        monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
-        
         response = client.post(
             "/evaluate/short-answer",
             json={
@@ -75,12 +84,9 @@ class TestEvaluateShortAnswer:
         assert response.status_code == 422  # Validation error
     
     @patch('api.main.call_llm')
-    def test_llm_call_failure(self, mock_call_llm, client, db_session, sample_question, auth_headers_student, monkeypatch):
+    def test_llm_call_failure(self, mock_call_llm, client, sample_question, auth_headers_student):
         """测试 LLM 调用失败"""
         mock_call_llm.side_effect = Exception("LLM API error")
-        
-        import api.main as main_module
-        monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
         
         response = client.post(
             "/evaluate/short-answer",
@@ -95,7 +101,7 @@ class TestEvaluateShortAnswer:
         assert "LLM call failed" in response.json()["detail"]
     
     @patch('api.main.call_llm')
-    def test_custom_rubric(self, mock_call_llm, client, db_session, sample_question, auth_headers_student, monkeypatch):
+    def test_custom_rubric(self, mock_call_llm, client, sample_question, auth_headers_student):
         """测试使用自定义评分标准"""
         mock_call_llm.return_value = {
             "total_score": 8.0,
@@ -103,9 +109,6 @@ class TestEvaluateShortAnswer:
             "key_points_evaluation": [],
             "improvement_recommendations": []
         }
-        
-        import api.main as main_module
-        monkeypatch.setattr(main_module, "SessionLocal", lambda: db_session)
         
         response = client.post(
             "/evaluate/short-answer",

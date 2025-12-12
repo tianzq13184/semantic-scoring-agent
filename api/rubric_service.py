@@ -31,30 +31,40 @@ def load_manual_rubric(question_id: str) -> Optional[dict]:
     
     优先返回激活的评分标准，如果没有激活的则返回最新的
     """
+    import time
+    logger.debug(f"[load_manual_rubric] 开始加载评分标准: question_id={question_id}")
+    start_time = time.time()
     sess = SessionLocal()
     try:
         # 优先查找激活的评分标准
+        logger.debug(f"[load_manual_rubric] 查询激活的评分标准")
         active_rubric = sess.query(QuestionRubric).filter(
             QuestionRubric.question_id == question_id,
             QuestionRubric.is_active == True
         ).first()
         
         if active_rubric:
-            logger.info(f"从数据库加载激活的评分标准: {question_id} -> {active_rubric.version}")
+            elapsed = time.time() - start_time
+            logger.info(f"[load_manual_rubric] 从数据库加载激活的评分标准: question_id={question_id} -> {active_rubric.version}, 耗时={elapsed:.3f}s")
             return active_rubric.rubric_json
         
         # 如果没有激活的，查找最新的评分标准
+        logger.debug(f"[load_manual_rubric] 未找到激活的评分标准，查询最新的")
         latest_rubric = sess.query(QuestionRubric).filter(
             QuestionRubric.question_id == question_id
         ).order_by(QuestionRubric.created_at.desc()).first()
         
         if latest_rubric:
-            logger.info(f"从数据库加载最新的评分标准: {question_id} -> {latest_rubric.version}")
+            elapsed = time.time() - start_time
+            logger.info(f"[load_manual_rubric] 从数据库加载最新的评分标准: question_id={question_id} -> {latest_rubric.version}, 耗时={elapsed:.3f}s")
             return latest_rubric.rubric_json
         
+        elapsed = time.time() - start_time
+        logger.debug(f"[load_manual_rubric] 未找到评分标准: question_id={question_id}, 耗时={elapsed:.3f}s")
         return None
     except Exception as e:
-        logger.error(f"加载评分标准失败: {question_id}, 错误: {e}")
+        elapsed = time.time() - start_time
+        logger.error(f"[load_manual_rubric] 加载评分标准失败: question_id={question_id}, 错误: {e}, 耗时={elapsed:.3f}s")
         return None
     finally:
         sess.close()

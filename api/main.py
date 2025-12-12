@@ -1,10 +1,14 @@
 import os
+import logging
+import time
 from fastapi import FastAPI, HTTPException, Query, Depends
 from dotenv import load_dotenv
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import desc
 from typing import Optional, List
+
+logger = logging.getLogger(__name__)
 from .models import (
     EvaluationRequest, EvaluationResult, LLMScorePayload,
     ReviewSaveRequest, ReviewSaveResponse,
@@ -41,47 +45,83 @@ def on_startup():
 
 def _get_question(question_id: str) -> dict:
     """从数据库获取题目信息"""
+    logger.debug(f"[_get_question] 开始查询题目: question_id={question_id}")
+    start_time = time.time()
+    logger.debug(f"[_get_question] 创建SessionLocal: {SessionLocal}")
     sess = SessionLocal()
+    logger.debug(f"[_get_question] Session创建完成, bind={sess.bind}")
     try:
+        logger.debug(f"[_get_question] 开始执行查询")
         question = sess.query(Question).filter(Question.question_id == question_id).first()
+        elapsed = time.time() - start_time
+        logger.debug(f"[_get_question] 查询执行完成, 耗时={elapsed:.3f}s")
         if not question:
+            logger.debug(f"[_get_question] 题目不存在: question_id={question_id}, 耗时={elapsed:.3f}s")
             return None
+        logger.debug(f"[_get_question] 查询成功: question_id={question_id}, topic={question.topic}, 耗时={elapsed:.3f}s")
         return {
             "text": question.text,
             "topic": question.topic
         }
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"[_get_question] 查询失败: question_id={question_id}, 错误={e}, 耗时={elapsed:.3f}s", exc_info=True)
+        raise
     finally:
         sess.close()
 
 @app.post("/evaluate/short-answer", response_model=EvaluationResult)
 def evaluate(req: EvaluationRequest, current_user: dict = Depends(require_any)):
     """
-    评估学生答案
-    学生和老师都可以使用此接口
-    如果是学生，会自动记录 student_id
+    评估学生答案（学生作答题目）
+    - 学生：可以作答题目，系统自动记录 student_id
+    - 老师：也可以使用此接口（用于测试或代答）
     """
+    request_start = time.time()
+    logger.info(f"[evaluate] 请求开始: question_id={req.question_id}, user_id={current_user.get('id')}, role={current_user.get('role')}")
+    
+    # 步骤1: 获取题目
+    logger.debug(f"[evaluate] 步骤1: 开始获取题目信息")
     q = _get_question(req.question_id)
     if not q:
+        logger.warning(f"[evaluate] 题目不存在: question_id={req.question_id}")
         raise HTTPException(404, "question_id not found")
+    logger.debug(f"[evaluate] 步骤1完成: 题目信息获取成功, topic={q.get('topic')}")
+    
+    # 步骤2: 获取评分标准
+    logger.debug(f"[evaluate] 步骤2: 开始获取评分标准")
+    rubric_start = time.time()
     rubric, rubric_version = get_rubric(
         req.question_id, 
         q["topic"], 
         req.rubric_json,
         question_text=q["text"]
     )
+    logger.debug(f"[evaluate] 步骤2完成: 评分标准获取成功, version={rubric_version}, 耗时={time.time()-rubric_start:.3f}s")
+    
+    # 步骤3: 调用 LLM
+    logger.debug(f"[evaluate] 步骤3: 开始调用 LLM (如果看到此日志但后续没有LLM日志，说明mock生效)")
+    llm_start = time.time()
     try:
         llm_json = call_llm(q["text"], rubric, req.student_answer)
+        logger.debug(f"[evaluate] 步骤3完成: LLM调用成功, 耗时={time.time()-llm_start:.3f}s")
     except Exception as exc:
+        logger.error(f"[evaluate] 步骤3失败: LLM调用异常, 错误={exc}, 耗时={time.time()-llm_start:.3f}s")
         raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}") from exc
 
+    # 步骤4: 验证 LLM 响应
+    logger.debug(f"[evaluate] 步骤4: 开始验证LLM响应")
     try:
         llm_payload = LLMScorePayload(**llm_json)
+        logger.debug(f"[evaluate] 步骤4完成: LLM响应验证成功, total_score={llm_payload.total_score}")
     except ValidationError as exc:
+        logger.error(f"[evaluate] 步骤4失败: LLM响应验证失败, 错误={exc.errors()}")
         raise HTTPException(status_code=502, detail=f"LLM returned invalid payload: {exc.errors()}") from exc
 
     provider, model_id, model_version = _model_metadata()
 
-    # 组装结果
+    # 步骤5: 组装结果
+    logger.debug(f"[evaluate] 步骤5: 开始组装结果")
     result = EvaluationResult(
         question_id=req.question_id,
         rubric_version=rubric_version,
@@ -91,12 +131,16 @@ def evaluate(req: EvaluationRequest, current_user: dict = Depends(require_any)):
         raw_llm_output=llm_json,
         **llm_payload.model_dump()
     )
+    logger.debug(f"[evaluate] 步骤5完成: 结果组装成功")
 
-    # 落库
+    # 步骤6: 保存到数据库
+    logger.debug(f"[evaluate] 步骤6: 开始保存到数据库")
+    db_start = time.time()
     sess = SessionLocal()
     try:
         # 如果是学生，记录 student_id；如果是老师，student_id 为 None（老师可以代答）
         student_id = current_user["id"] if current_user["role"] == "student" else None
+        logger.debug(f"[evaluate] 准备保存评估结果: student_id={student_id}")
         
         ae = AnswerEvaluation(
             question_id=req.question_id,
@@ -111,20 +155,24 @@ def evaluate(req: EvaluationRequest, current_user: dict = Depends(require_any)):
         )
         sess.add(ae)
         sess.commit()
+        logger.debug(f"[evaluate] 步骤6完成: 数据库保存成功, evaluation_id={ae.id}, 耗时={time.time()-db_start:.3f}s")
     except SQLAlchemyError as exc:
+        logger.error(f"[evaluate] 步骤6失败: 数据库保存异常, 错误={exc}, 耗时={time.time()-db_start:.3f}s")
         sess.rollback()
         raise HTTPException(status_code=500, detail="Failed to persist evaluation result") from exc
     finally:
         sess.close()
 
+    total_time = time.time() - request_start
+    logger.info(f"[evaluate] 请求完成: question_id={req.question_id}, total_score={result.total_score}, 总耗时={total_time:.3f}s")
     return result
 
 
 @app.post("/review/save", response_model=ReviewSaveResponse)
 def save_review(req: ReviewSaveRequest, current_user: dict = Depends(require_teacher)):
     """
-    保存教师评分覆盖
-    仅老师可以使用
+    批改作业（在AI答案的基础上进行人工评分）
+    - 教师：可以覆盖AI评分，录入最终分数和评语
     """
     sess = SessionLocal()
     try:
@@ -168,8 +216,9 @@ def list_evaluations(
     current_user: dict = Depends(require_any)
 ):
     """
-    查询评估结果列表
-    学生只能查看自己的结果，老师可以查看所有结果
+    浏览评价列表（自动生成/老师批改）
+    - 学生：只能查看自己的评价结果
+    - 教师：可以查看所有学生的评价结果
     """
     sess = SessionLocal()
     try:
@@ -222,8 +271,9 @@ def list_evaluations(
 @app.get("/evaluations/{evaluation_id}", response_model=EvaluationDetail)
 def get_evaluation_detail(evaluation_id: int, current_user: dict = Depends(require_any)):
     """
-    获取评估结果详情
-    学生只能查看自己的结果，老师可以查看所有结果
+    浏览最终结果（查看评价详情）
+    - 学生：只能查看自己的评价详情（包括AI评分和教师批改）
+    - 教师：可以查看所有学生的评价详情
     """
     sess = SessionLocal()
     try:
@@ -274,7 +324,8 @@ def list_questions(
 ):
     """
     查询题目列表
-    学生和老师都可以查看题目列表（用于答题）
+    - 学生：可以查看题目列表（用于选择题目作答）
+    - 教师：可以查看题目列表（用于管理）
     """
     sess = SessionLocal()
     try:
@@ -317,7 +368,8 @@ def list_questions(
 def get_question(question_id: str, current_user: dict = Depends(require_any)):
     """
     获取题目详情
-    学生和老师都可以查看题目详情
+    - 学生：可以查看题目详情（用于作答）
+    - 教师：可以查看题目详情（用于管理）
     """
     sess = SessionLocal()
     try:
@@ -356,8 +408,8 @@ def get_question(question_id: str, current_user: dict = Depends(require_any)):
 @app.post("/questions", response_model=QuestionItem, status_code=201)
 def create_question(req: QuestionCreate, current_user: dict = Depends(require_teacher)):
     """
-    创建新题目
-    仅老师可以使用
+    录入题目（教师）
+    - 教师：可以创建新题目
     """
     sess = SessionLocal()
     try:
@@ -396,8 +448,8 @@ def create_question(req: QuestionCreate, current_user: dict = Depends(require_te
 @app.put("/questions/{question_id}", response_model=QuestionItem)
 def update_question(question_id: str, req: QuestionUpdate, current_user: dict = Depends(require_teacher)):
     """
-    更新题目
-    仅老师可以使用
+    更新题目（教师）
+    - 教师：可以更新题目
     """
     sess = SessionLocal()
     try:
@@ -435,6 +487,10 @@ def update_question(question_id: str, req: QuestionUpdate, current_user: dict = 
 @app.delete("/questions/{question_id}", status_code=204)
 def delete_question(question_id: str, current_user: dict = Depends(require_teacher)):
     """
+    删除题目（教师）
+    - 教师：可以删除题目
+    """
+    """
     删除题目
     仅老师可以使用
     """
@@ -461,7 +517,7 @@ def delete_question(question_id: str, current_user: dict = Depends(require_teach
 # ==================== 评分标准管理接口 ====================
 
 @app.get("/questions/{question_id}/rubrics", response_model=RubricListResponse)
-def list_rubrics(question_id: str, current_user: dict = Depends(require_teacher)):
+def list_rubrics(question_id: str, current_user: dict = Depends(require_any)):
     """
     查询题目的评分标准列表
     学生和老师都可以查看（用于了解评分标准）
@@ -505,8 +561,8 @@ def list_rubrics(question_id: str, current_user: dict = Depends(require_teacher)
 @app.post("/questions/{question_id}/rubrics", response_model=RubricDetail, status_code=201)
 def create_rubric(question_id: str, req: RubricCreate, current_user: dict = Depends(require_teacher)):
     """
-    为题目创建评分标准
-    仅老师可以使用
+    录入评分标准（教师）
+    - 教师：可以为题目创建评分标准
     """
     sess = SessionLocal()
     try:
@@ -563,8 +619,8 @@ def create_rubric(question_id: str, req: RubricCreate, current_user: dict = Depe
 @app.put("/rubrics/{rubric_id}", response_model=RubricDetail)
 def update_rubric(rubric_id: int, req: RubricUpdate, current_user: dict = Depends(require_teacher)):
     """
-    更新评分标准
-    仅老师可以使用
+    更新评分标准（教师）
+    - 教师：可以更新评分标准
     """
     sess = SessionLocal()
     try:
@@ -611,8 +667,8 @@ def update_rubric(rubric_id: int, req: RubricUpdate, current_user: dict = Depend
 @app.post("/rubrics/{rubric_id}/activate", response_model=RubricActivateResponse)
 def activate_rubric(rubric_id: int, current_user: dict = Depends(require_teacher)):
     """
-    激活评分标准（同时取消同题目的其他激活评分标准）
-    仅老师可以使用
+    激活评分标准（教师）
+    - 教师：可以激活评分标准（同时取消同题目的其他激活评分标准）
     """
     sess = SessionLocal()
     try:
@@ -652,7 +708,8 @@ def activate_rubric(rubric_id: int, current_user: dict = Depends(require_teacher
 def get_rubric_detail(rubric_id: int, current_user: dict = Depends(require_any)):
     """
     获取评分标准详情
-    学生和老师都可以查看
+    - 学生：可以查看评分标准详情（用于了解评分标准）
+    - 教师：可以查看评分标准详情（用于管理）
     """
     sess = SessionLocal()
     try:

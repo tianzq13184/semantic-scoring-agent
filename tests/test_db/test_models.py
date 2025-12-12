@@ -25,8 +25,12 @@ class TestQuestionModel:
     
     def test_question_unique_constraint(self, db_session):
         """测试题目唯一性约束"""
+        # 使用唯一的 question_id，避免与 sample_question fixture 冲突
+        import uuid
+        unique_id = f"UNIQUE_TEST_{uuid.uuid4().hex[:8]}"
+        
         question1 = Question(
-            question_id="TEST_Q1",
+            question_id=unique_id,
             text="题目1",
             topic="python"
         )
@@ -34,7 +38,7 @@ class TestQuestionModel:
         db_session.commit()
         
         question2 = Question(
-            question_id="TEST_Q1",  # 重复的 question_id
+            question_id=unique_id,  # 重复的 question_id
             text="题目2",
             topic="python"
         )
@@ -42,6 +46,9 @@ class TestQuestionModel:
         
         with pytest.raises(Exception):  # 应该抛出唯一性约束错误
             db_session.commit()
+        
+        # 捕获异常后需要 rollback
+        db_session.rollback()
 
 
 class TestQuestionRubricModel:
@@ -72,8 +79,12 @@ class TestQuestionRubricModel:
         )
         db_session.add(rubric)
         
-        # SQLite 可能不会立即检查外键，但应该测试
-        db_session.commit()
+        # MySQL 会立即检查外键约束，应该抛出异常
+        with pytest.raises(Exception):  # 应该抛出外键约束错误
+            db_session.commit()
+        
+        # 捕获异常后需要 rollback
+        db_session.rollback()
 
 
 class TestAnswerEvaluationModel:
@@ -81,6 +92,12 @@ class TestAnswerEvaluationModel:
     
     def test_create_evaluation(self, db_session, sample_question):
         """测试创建评估结果"""
+        # 先创建学生用户，满足外键约束
+        from api.db import User
+        student = User(id="student001", username="测试学生", role="student")
+        db_session.add(student)
+        db_session.commit()
+        
         evaluation = AnswerEvaluation(
             question_id=sample_question.question_id,
             student_id="student001",

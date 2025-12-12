@@ -16,9 +16,9 @@ Base = declarative_base()
 class User(Base):
     """用户表"""
     __tablename__ = "users"
-    id = Column(String, primary_key=True)  # 用户ID（可以是学号、工号等）
-    username = Column(String, nullable=False, index=True)
-    role = Column(String, nullable=False, index=True)  # "student" 或 "teacher"
+    id = Column(String(100), primary_key=True)  # 用户ID（可以是学号、工号等）
+    username = Column(String(200), nullable=False, index=True)
+    role = Column(String(50), nullable=False, index=True)  # "student" 或 "teacher"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -28,9 +28,9 @@ class User(Base):
 class Question(Base):
     __tablename__ = "questions"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    question_id = Column(String, unique=True, index=True, nullable=False)
+    question_id = Column(String(100), unique=True, index=True, nullable=False)
     text = Column(Text, nullable=False)
-    topic = Column(String, index=True)
+    topic = Column(String(200), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -42,11 +42,11 @@ class Question(Base):
 class QuestionRubric(Base):
     __tablename__ = "question_rubrics"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    question_id = Column(String, ForeignKey("questions.question_id", ondelete="CASCADE"), nullable=False, index=True)
-    version = Column(String, nullable=False)
+    question_id = Column(String(100), ForeignKey("questions.question_id", ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(String(50), nullable=False)
     rubric_json = Column(JSON, nullable=False)
     is_active = Column(Boolean, default=True, index=True)
-    created_by = Column(String, nullable=True)
+    created_by = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
@@ -56,16 +56,16 @@ class QuestionRubric(Base):
 class AnswerEvaluation(Base):
     __tablename__ = "answer_evaluations"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    question_id = Column(String, ForeignKey("questions.question_id", ondelete="SET NULL"), index=True)
-    student_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    question_id = Column(String(100), ForeignKey("questions.question_id", ondelete="SET NULL"), index=True)
+    student_id = Column(String(100), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     student_answer = Column(Text)
     auto_score = Column(Float)
     final_score = Column(Float, nullable=True)
     dimension_scores_json = Column(JSON)
-    model_version = Column(String)
-    rubric_version = Column(String)
+    model_version = Column(String(50))
+    rubric_version = Column(String(50))
     raw_llm_output = Column(JSON)
-    reviewer_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewer_id = Column(String(100), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     review_notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
