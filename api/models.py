@@ -9,7 +9,7 @@ class EvaluationRequest(BaseModel):
     question_id: NonEmptyStr
     student_answer: AnswerStr
     with_rubric: Optional[bool] = False
-    rubric_json: Optional[dict] = None  # 前端可直接传入rubric（可选）
+    rubric_json: Optional[dict] = None
 
 class LLMScorePayload(BaseModel):
     total_score: float = Field(ge=0, le=10)
@@ -30,7 +30,7 @@ class EvaluationResult(LLMScorePayload):
     provider: str
     model_id: str
     model_version: str
-    raw_llm_output: dict  # 原始JSON
+    raw_llm_output: dict
 
 class ReviewSaveRequest(BaseModel):
     evaluation_id: int
@@ -68,7 +68,7 @@ class EvaluationListResponse(BaseModel):
     items: List[EvaluationListItem]
 
 
-# 题目管理相关模型
+# Question management models
 class QuestionCreate(BaseModel):
     question_id: NonEmptyStr
     text: str = Field(..., min_length=1)
@@ -95,7 +95,7 @@ class QuestionListResponse(BaseModel):
     items: List[QuestionItem]
 
 
-# 评分标准管理相关模型
+# Rubric management models
 class RubricCreate(BaseModel):
     version: NonEmptyStr
     rubric_json: dict
@@ -129,11 +129,11 @@ class RubricActivateResponse(BaseModel):
     version: str
 
 
-# 用户相关模型
+# User models
 class UserCreate(BaseModel):
-    id: str  # 用户ID（学号/工号）
+    id: str
     username: str
-    role: str  # "student" 或 "teacher"
+    role: str
 
 class UserItem(BaseModel):
     id: str

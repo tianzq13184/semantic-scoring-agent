@@ -14,14 +14,12 @@ Base = declarative_base()
 
 
 class User(Base):
-    """用户表"""
+    """User table"""
     __tablename__ = "users"
-    id = Column(String(100), primary_key=True)  # 用户ID（可以是学号、工号等）
+    id = Column(String(100), primary_key=True)
     username = Column(String(200), nullable=False, index=True)
-    role = Column(String(50), nullable=False, index=True)  # "student" 或 "teacher"
+    role = Column(String(50), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Relationships
     evaluations = relationship("AnswerEvaluation", back_populates="user", foreign_keys="AnswerEvaluation.student_id")
 
 
@@ -34,7 +32,6 @@ class Question(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    # Relationships
     rubrics = relationship("QuestionRubric", back_populates="question", cascade="all, delete-orphan")
     evaluations = relationship("AnswerEvaluation", back_populates="question")
 
@@ -49,7 +46,6 @@ class QuestionRubric(Base):
     created_by = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # Relationships
     question = relationship("Question", back_populates="rubrics")
 
 
@@ -70,7 +66,6 @@ class AnswerEvaluation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
-    # Relationships
     question = relationship("Question", back_populates="evaluations")
     user = relationship("User", foreign_keys=[student_id], back_populates="evaluations")
 

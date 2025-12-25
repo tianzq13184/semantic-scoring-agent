@@ -10,7 +10,7 @@ st.set_page_config(page_title="Answer Evaluator", layout="wide")
 
 load_dotenv()
 
-# 尝试从 secrets 或环境变量获取 API_BASE
+# Try to get API_BASE from secrets or environment variables
 try:
     API_BASE = st.secrets.get("API_BASE", None)
 except (FileNotFoundError, AttributeError):
@@ -18,123 +18,123 @@ except (FileNotFoundError, AttributeError):
 
 API_BASE = API_BASE or os.getenv("API_BASE", "http://127.0.0.1:8000")
 
-# 获取请求头（包含用户token）
+# Get request headers (including user token)
 def get_headers():
-    """获取包含用户认证信息的请求头"""
+    """Get request headers containing user authentication information"""
     headers = {}
     if "user_token" in st.session_state:
         headers["X-User-Token"] = st.session_state.user_token
     return headers
 
-# ==================== 用户登录/角色选择 ====================
-# 初始化 session state
+# ==================== User Login/Role Selection ====================
+# Initialize session state
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 if "user_token" not in st.session_state:
     st.session_state.user_token = None
 
-# 侧边栏：用户登录
+# Sidebar: User login
 with st.sidebar:
-    st.title("🔐 登录")
+    st.title("Login")
     
     if st.session_state.current_user is None:
-        # 未登录状态：显示登录表单
-        user_id = st.selectbox("选择用户", ["teacher001", "student001"], help="选择要登录的用户ID")
+        # Not logged in: show login form
+        user_id = st.selectbox("Select User", ["teacher001", "student001"], help="Select the user ID to log in")
         
-        if st.button("登录", type="primary", use_container_width=True):
-            # 验证用户（简化实现：直接使用用户ID作为token）
+        if st.button("Login", type="primary", use_container_width=True):
+            # Verify user (simplified implementation: use user ID directly as token)
             try:
                 r = requests.get(f"{API_BASE}/users/{user_id}", headers={"X-User-Token": user_id}, timeout=5)
                 if r.status_code == 200:
                     user_data = r.json()
                     st.session_state.current_user = user_data
                     st.session_state.user_token = user_id
-                    st.success(f"登录成功！欢迎，{user_data['username']}")
+                    st.success(f"Login successful! Welcome, {user_data['username']}")
                     st.rerun()
                 elif r.status_code == 401:
-                    st.error("需要登录")
+                    st.error("Login required")
                 else:
-                    st.error(f"登录失败: {r.status_code}")
+                    st.error(f"Login failed: {r.status_code}")
             except Exception as e:
-                st.error(f"登录失败: {e}")
+                st.error(f"Login failed: {e}")
     else:
-        # 已登录状态：显示用户信息和退出按钮
+        # Logged in: show user info and logout button
         user = st.session_state.current_user
-        st.success(f"✅ {user['username']}")
-        st.caption(f"角色: {'👨‍🏫 老师' if user['role'] == 'teacher' else '👨‍🎓 学生'}")
+        st.success(f"{user['username']}")
+        st.caption(f"Role: {'Teacher' if user['role'] == 'teacher' else 'Student'}")
         
-        if st.button("退出登录", use_container_width=True):
+        if st.button("Logout", use_container_width=True):
             st.session_state.current_user = None
             st.session_state.user_token = None
             st.rerun()
 
-# 如果未登录，显示提示
+# If not logged in, show prompt
 if st.session_state.current_user is None:
-    st.warning("请先登录")
+    st.warning("Please login first")
     st.stop()
 
-# 获取当前用户信息
+# Get current user information
 current_user = st.session_state.current_user
 user_role = current_user["role"]
 user_token = st.session_state.user_token
 
-# 根据角色显示不同的页面选项
+# Show different page options based on role
 if user_role == "teacher":
-    pages = ["评估答案", "评估结果列表", "评估详情", "题目管理", "评分标准管理"]
+    pages = ["Evaluate Answer", "Evaluation List", "Evaluation Detail", "Question Management", "Rubric Management"]
 else:
-    pages = ["评估答案", "评估结果列表", "评估详情"]
+    pages = ["Evaluate Answer", "Evaluation List", "Evaluation Detail"]
 
-# 页面选择
-page = st.sidebar.selectbox("页面", pages)
+# Page selection
+page = st.sidebar.selectbox("Page", pages)
 
-# 加载题目列表（缓存60秒）
+# Load question list (cached for 60 seconds)
 @st.cache_data(ttl=60)
 def load_questions():
-    """从API加载题目列表"""
+    """Load question list from API"""
     try:
         r = requests.get(f"{API_BASE}/questions", params={"limit": 100}, timeout=5)
         if r.status_code == 200:
             return r.json()["items"]
     except Exception as e:
-        st.sidebar.warning(f"加载题目列表失败: {e}")
+        st.sidebar.warning(f"Failed to load question list: {e}")
     return []
 
-if page == "评估答案":
+if page == "Evaluate Answer":
     with st.sidebar:
         st.title("Answer Evaluator")
         
-        # 从数据库动态加载题目列表
+        # Dynamically load question list from database
         @st.cache_data(ttl=60)
         def load_questions_with_auth():
-            """从API加载题目列表（带认证）"""
+            """Load question list from API (with authentication)"""
             try:
                 headers = {"X-User-Token": user_token}
                 r = requests.get(f"{API_BASE}/questions", params={"limit": 100}, headers=headers, timeout=5)
                 if r.status_code == 200:
                     return r.json()["items"]
             except Exception as e:
-                st.sidebar.warning(f"加载题目列表失败: {e}")
+                st.sidebar.warning(f"Failed to load question list: {e}")
             return []
         
         questions = load_questions_with_auth()
         if questions:
             question_options = [q["question_id"] for q in questions]
             question_id = st.selectbox("Question ID", question_options)
-            # 显示题目信息
+            # Show question information
             selected_question = next((q for q in questions if q["question_id"] == question_id), None)
             if selected_question:
-                st.caption(f"主题: {selected_question.get('topic', 'N/A')}")
+                st.caption(f"Topic: {selected_question.get('topic', 'N/A')}")
         else:
-            # 回退到硬编码（如果API不可用）
+            # Fallback to hardcoded (if API is unavailable)
             question_id = st.selectbox("Question ID", ["Q2105"])
-            st.warning("无法加载题目列表，使用默认题目")
+            st.warning("Unable to load question list, using default question")
         
         with_rubric = st.checkbox("I already have a rubric JSON", value=False)
         rubric_text = ""
         if with_rubric:
             rubric_text = st.text_area("Paste rubric JSON", height=180, placeholder='{"version":"manual-v1", ...}')
 
-    st.markdown("### ✍️ Candidate Answer")
+    st.markdown("### Candidate Answer")
     student_answer = st.text_area("Write your answer here", height=220, placeholder="I will use Airflow to schedule jobs...")
     has_answer = bool(student_answer.strip())
     if not has_answer:
@@ -148,28 +148,28 @@ if page == "评估答案":
                 "question_id": question_id,
                 "student_answer": student_answer
             }
-            # 如果用户提供了评分标准，添加到 payload
+            # If user provided rubric, add to payload
             if with_rubric and rubric_text.strip():
                 try:
                     payload["rubric_json"] = json.loads(rubric_text)
                 except Exception as e:
                     st.error(f"Rubric JSON invalid: {e}")
-                    st.stop()  # 停止执行，不发送请求
+                    st.stop()  # Stop execution, don't send request
             try:
                 with st.spinner("Evaluating..."):
                     r = requests.post(f"{API_BASE}/evaluate/short-answer", json=payload, headers=get_headers(), timeout=60)
                 if r.status_code == 200:
                     result = r.json()
                     st.session_state["last_result"] = result
-                    st.session_state["last_evaluation_id"] = None  # 需要从响应中获取，但当前API不返回
-                    st.success("评估完成！")
+                    st.session_state["last_evaluation_id"] = None  # Need to get from response, but current API doesn't return it
+                    st.success("Evaluation completed!")
                 else:
                     st.error(f"API Error: {r.status_code} {r.text}")
             except Exception as e:
                 st.error(f"Request failed: {e}")
 
     with col_res:
-        st.markdown("### 📊 Result")
+        st.markdown("### Result")
         res = st.session_state.get("last_result")
         if res:
             total_score = res.get("total_score")
@@ -194,25 +194,25 @@ if page == "评估答案":
             with st.expander("Raw JSON"):
                 st.json(res)
         else:
-            st.info("等待评估结果…")
+            st.info("Waiting for evaluation results...")
 
-elif page == "评估结果列表":
-    st.title("📋 评估结果列表")
+elif page == "Evaluation List":
+    st.title("Evaluation List")
     
-    # 筛选条件
+    # Filter conditions
     col1, col2 = st.columns(2)
     with col1:
-        filter_question_id = st.text_input("题目 ID", value="")
+        filter_question_id = st.text_input("Question ID", value="")
     with col2:
-        filter_student_id = st.text_input("学生 ID", value="")
+        filter_student_id = st.text_input("Student ID", value="")
     
     col3, col4 = st.columns(2)
     with col3:
-        limit = st.number_input("每页数量", min_value=1, max_value=100, value=20)
+        limit = st.number_input("Items per page", min_value=1, max_value=100, value=20)
     with col4:
-        offset = st.number_input("偏移量", min_value=0, value=0)
+        offset = st.number_input("Offset", min_value=0, value=0)
     
-    if st.button("查询", type="primary"):
+    if st.button("Search", type="primary"):
         params = {"limit": limit, "offset": offset}
         if filter_question_id:
             params["question_id"] = filter_question_id
@@ -220,112 +220,112 @@ elif page == "评估结果列表":
             params["student_id"] = filter_student_id
         
         try:
-            with st.spinner("加载中..."):
+            with st.spinner("Loading..."):
                 r = requests.get(f"{API_BASE}/evaluations", params=params, headers=get_headers(), timeout=10)
             if r.status_code == 200:
                 data = r.json()
                 st.session_state["evaluation_list"] = data
-                st.success(f"找到 {data['total']} 条记录")
+                st.success(f"Found {data['total']} records")
             else:
                 st.error(f"API Error: {r.status_code} {r.text}")
         except Exception as e:
             st.error(f"Request failed: {e}")
     
-    # 显示列表
+    # Display list
     if "evaluation_list" in st.session_state:
         data = st.session_state["evaluation_list"]
-        st.markdown(f"**总计: {data['total']} 条记录**")
+        st.markdown(f"**Total: {data['total']} records**")
         
         if data["items"]:
             for item in data["items"]:
-                with st.expander(f"评估 #{item['id']} - {item['question_id']} (创建时间: {item['created_at']})"):
+                with st.expander(f"Evaluation #{item['id']} - {item['question_id']} (Created: {item['created_at']})"):
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("自动评分", f"{item['auto_score']:.2f}" if item['auto_score'] else "N/A")
+                        st.metric("Auto Score", f"{item['auto_score']:.2f}" if item['auto_score'] else "N/A")
                     with col2:
-                        st.metric("最终评分", f"{item['final_score']:.2f}" if item['final_score'] else "未审核")
+                        st.metric("Final Score", f"{item['final_score']:.2f}" if item['final_score'] else "Not reviewed")
                     with col3:
                         if item['reviewer_id']:
-                            st.caption(f"审核人: {item['reviewer_id']}")
+                            st.caption(f"Reviewer: {item['reviewer_id']}")
                     
-                    if st.button(f"查看详情", key=f"detail_{item['id']}"):
+                    if st.button(f"View Details", key=f"detail_{item['id']}"):
                         st.session_state["selected_evaluation_id"] = item['id']
                         st.rerun()
         else:
-            st.info("没有找到评估结果")
+            st.info("No evaluation results found")
 
-elif page == "评估详情":
-    st.title("📄 评估详情")
+elif page == "Evaluation Detail":
+    st.title("Evaluation Detail")
     
-    # 从列表页面跳转
+    # Navigate from list page
     evaluation_id = st.session_state.get("selected_evaluation_id")
     if not evaluation_id:
-        evaluation_id = st.number_input("输入评估 ID", min_value=1, value=1)
+        evaluation_id = st.number_input("Enter Evaluation ID", min_value=1, value=1)
     
-    if st.button("加载详情", type="primary") or evaluation_id:
+    if st.button("Load Details", type="primary") or evaluation_id:
         try:
-            with st.spinner("加载中..."):
+            with st.spinner("Loading..."):
                 headers = {"X-User-Token": user_token}
                 r = requests.get(f"{API_BASE}/evaluations/{evaluation_id}", headers=headers, timeout=10)
             if r.status_code == 200:
                 detail = r.json()
                 st.session_state["evaluation_detail"] = detail
             elif r.status_code == 404:
-                st.error(f"评估记录 {evaluation_id} 不存在")
+                st.error(f"Evaluation record {evaluation_id} does not exist")
             else:
                 st.error(f"API Error: {r.status_code} {r.text}")
         except Exception as e:
             st.error(f"Request failed: {e}")
     
-    # 显示详情
+    # Display details
     if "evaluation_detail" in st.session_state:
         detail = st.session_state["evaluation_detail"]
         
-        # 基本信息
+        # Basic information
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("自动评分", f"{detail['auto_score']:.2f}" if detail['auto_score'] else "N/A")
+            st.metric("Auto Score", f"{detail['auto_score']:.2f}" if detail['auto_score'] else "N/A")
         with col2:
-            st.metric("最终评分", f"{detail['final_score']:.2f}" if detail['final_score'] else "未审核")
+            st.metric("Final Score", f"{detail['final_score']:.2f}" if detail['final_score'] else "Not reviewed")
         
         st.markdown("---")
         
-        # 题目和答案
-        st.subheader("题目信息")
-        st.write(f"**题目 ID:** {detail['question_id']}")
+        # Question and answer
+        st.subheader("Question Information")
+        st.write(f"**Question ID:** {detail['question_id']}")
         if detail['student_id']:
-            st.write(f"**学生 ID:** {detail['student_id']}")
+            st.write(f"**Student ID:** {detail['student_id']}")
         
-        st.subheader("学生答案")
-        st.text_area("答案内容", value=detail['student_answer'], height=150, disabled=True)
+        st.subheader("Student Answer")
+        st.text_area("Answer Content", value=detail['student_answer'], height=150, disabled=True)
         
-        # 评分详情
+        # Scoring details
         if detail['dimension_scores_json']:
-            st.subheader("维度评分")
-            st.table([{"维度": k, "得分": v} for k, v in detail['dimension_scores_json'].items()])
+            st.subheader("Dimension Scores")
+            st.table([{"Dimension": k, "Score": v} for k, v in detail['dimension_scores_json'].items()])
         
-        # 模型信息
+        # Model information
         if detail['model_version']:
-            st.subheader("模型信息")
-            st.write(f"**模型版本:** {detail['model_version']}")
-            st.write(f"**评分标准版本:** {detail['rubric_version']}")
+            st.subheader("Model Information")
+            st.write(f"**Model Version:** {detail['model_version']}")
+            st.write(f"**Rubric Version:** {detail['rubric_version']}")
         
-        # 教师审核（仅老师可见）
+        # Teacher review (only visible to teachers)
         if user_role == "teacher":
             st.markdown("---")
-            st.subheader("教师审核")
+            st.subheader("Teacher Review")
             
             with st.form("review_form"):
                 final_score = st.number_input(
-                    "最终评分",
+                    "Final Score",
                     min_value=0.0,
                     max_value=10.0,
                     value=float(detail['final_score']) if detail['final_score'] else float(detail['auto_score']) if detail['auto_score'] else 0.0,
                     step=0.1
                 )
-                review_notes = st.text_area("审核备注", value=detail.get('review_notes', ''), height=100)
+                review_notes = st.text_area("Review Notes", value=detail.get('review_notes', ''), height=100)
                 
-                submitted = st.form_submit_button("保存审核", type="primary")
+                submitted = st.form_submit_button("Save Review", type="primary")
                 
                 if submitted:
                     payload = {
@@ -334,25 +334,211 @@ elif page == "评估详情":
                         "review_notes": review_notes if review_notes else None
                     }
                     try:
-                        with st.spinner("保存中..."):
+                        with st.spinner("Saving..."):
                             headers = {"X-User-Token": user_token}
                             r = requests.post(f"{API_BASE}/review/save", json=payload, headers=headers, timeout=10)
                         if r.status_code == 200:
                             result = r.json()
-                            st.success(f"审核已保存！自动评分: {result['auto_score']:.2f}, 最终评分: {result['final_score']:.2f}")
-                            # 清除缓存，重新加载
+                            st.success(f"Review saved! Auto score: {result['auto_score']:.2f}, Final score: {result['final_score']:.2f}")
+                            # Clear cache and reload
                             if "evaluation_detail" in st.session_state:
                                 del st.session_state["evaluation_detail"]
                             st.rerun()
                         else:
-                            st.error(f"保存失败: {r.status_code} {r.text}")
+                            st.error(f"Save failed: {r.status_code} {r.text}")
                     except Exception as e:
                         st.error(f"Request failed: {e}")
         
-        # 显示现有审核信息
+        # Display existing review information
         if detail.get('review_notes'):
-            st.info(f"**现有备注:** {detail['review_notes']}")
+            st.info(f"**Existing Notes:** {detail['review_notes']}")
         
-        # 原始输出
-        with st.expander("原始 LLM 输出"):
+        # Raw output
+        with st.expander("Raw LLM Output"):
             st.json(detail.get('raw_llm_output', {}))
+
+elif page == "Question Management":
+    st.title("Question Management")
+    
+    try:
+        headers = get_headers()
+        r = requests.get(f"{API_BASE}/questions", params={"limit": 100}, headers=headers, timeout=10)
+        
+        if r.status_code == 200:
+            questions_data = r.json()
+            questions = questions_data.get("items", [])
+            st.success(f"Found {questions_data.get('total', 0)} questions")
+        else:
+            st.error(f"Failed to load question list: {r.status_code} {r.text}")
+            questions = []
+    except Exception as e:
+        st.error(f"Request failed: {e}")
+        questions = []
+    
+    # Display question list
+    if questions:
+        st.subheader("Question List")
+        for q in questions:
+            with st.expander(f"{q['question_id']} - {q.get('topic', 'N/A')}"):
+                st.write(f"**Question Text:** {q['text']}")
+                st.caption(f"Created: {q.get('created_at', 'N/A')}")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"View Details", key=f"q_detail_{q['question_id']}"):
+                        st.session_state["selected_question_id"] = q['question_id']
+                        st.rerun()
+                with col2:
+                    if st.button(f"Delete", key=f"q_delete_{q['question_id']}"):
+                        try:
+                            headers = get_headers()
+                            r = requests.delete(f"{API_BASE}/questions/{q['question_id']}", headers=headers, timeout=10)
+                            if r.status_code == 204:
+                                st.success("Question deleted")
+                                st.rerun()
+                            else:
+                                st.error(f"Delete failed: {r.status_code} {r.text}")
+                        except Exception as e:
+                            st.error(f"Delete failed: {e}")
+    else:
+        st.info("No questions available")
+    
+    # Create new question
+    st.markdown("---")
+    st.subheader("Create New Question")
+    with st.form("create_question_form"):
+        question_id = st.text_input("Question ID", placeholder="e.g., Q2106")
+        question_text = st.text_area("Question Text", height=100, placeholder="Enter question content...")
+        topic = st.text_input("Topic", placeholder="e.g., airflow")
+        
+        submitted = st.form_submit_button("Create Question", type="primary")
+        
+        if submitted:
+            if not question_id or not question_text or not topic:
+                st.error("Please fill in all required fields")
+            else:
+                try:
+                    payload = {
+                        "question_id": question_id,
+                        "text": question_text,
+                        "topic": topic
+                    }
+                    headers = get_headers()
+                    r = requests.post(f"{API_BASE}/questions", json=payload, headers=headers, timeout=10)
+                    if r.status_code == 201:
+                        st.success("Question created successfully!")
+                        st.rerun()
+                    else:
+                        st.error(f"Creation failed: {r.status_code} {r.text}")
+                except Exception as e:
+                    st.error(f"Creation failed: {e}")
+
+elif page == "Rubric Management":
+    st.title("Rubric Management")
+    
+    # Select question
+    st.subheader("Select Question")
+    try:
+        headers = get_headers()
+        r = requests.get(f"{API_BASE}/questions", params={"limit": 100}, headers=headers, timeout=10)
+        if r.status_code == 200:
+            questions_data = r.json()
+            questions = questions_data.get("items", [])
+            if questions:
+                question_options = {f"{q['question_id']} - {q.get('topic', 'N/A')}": q['question_id'] for q in questions}
+                selected_label = st.selectbox("Select Question", list(question_options.keys()))
+                selected_question_id = question_options[selected_label]
+            else:
+                st.warning("No questions available, please create a question first")
+                selected_question_id = None
+        else:
+            st.error(f"Failed to load question list: {r.status_code}")
+            selected_question_id = None
+    except Exception as e:
+        st.error(f"Failed to load question list: {e}")
+        selected_question_id = None
+    
+    if selected_question_id:
+        # Display rubric list for this question
+        st.markdown("---")
+        st.subheader(f"Rubrics for Question {selected_question_id}")
+        
+        try:
+            headers = get_headers()
+            r = requests.get(f"{API_BASE}/questions/{selected_question_id}/rubrics", headers=headers, timeout=10)
+            
+            if r.status_code == 200:
+                rubrics_data = r.json()
+                rubrics = rubrics_data.get("items", [])
+                
+                if rubrics:
+                    for rubric in rubrics:
+                        with st.expander(f"Version: {rubric['version']} {'Active' if rubric['is_active'] else 'Inactive'}"):
+                            st.write(f"**Created By:** {rubric.get('created_by', 'N/A')}")
+                            st.write(f"**Created At:** {rubric.get('created_at', 'N/A')}")
+                            
+                            # View details
+                            if st.button(f"View Details", key=f"r_detail_{rubric['id']}"):
+                                try:
+                                    headers = get_headers()
+                                    r_detail = requests.get(f"{API_BASE}/rubrics/{rubric['id']}", headers=headers, timeout=10)
+                                    if r_detail.status_code == 200:
+                                        detail = r_detail.json()
+                                        st.json(detail.get('rubric_json', {}))
+                                    else:
+                                        st.error(f"Failed to load details: {r_detail.status_code}")
+                                except Exception as e:
+                                    st.error(f"Failed to load details: {e}")
+                            
+                            # Activate/Deactivate
+                            if not rubric['is_active']:
+                                if st.button(f"Activate", key=f"r_activate_{rubric['id']}"):
+                                    try:
+                                        headers = get_headers()
+                                        r_activate = requests.post(f"{API_BASE}/rubrics/{rubric['id']}/activate", headers=headers, timeout=10)
+                                        if r_activate.status_code == 200:
+                                            st.success("Rubric activated")
+                                            st.rerun()
+                                        else:
+                                            st.error(f"Activation failed: {r_activate.status_code} {r_activate.text}")
+                                    except Exception as e:
+                                        st.error(f"Activation failed: {e}")
+                else:
+                    st.info("No rubrics available for this question")
+            else:
+                st.error(f"Failed to load rubric list: {r.status_code} {r.text}")
+        except Exception as e:
+            st.error(f"Failed to load rubric list: {e}")
+        
+        # Create new rubric
+        st.markdown("---")
+        st.subheader("Create New Rubric")
+        with st.form("create_rubric_form"):
+            version = st.text_input("Version", placeholder="e.g., v1.0")
+            is_active = st.checkbox("Activate this rubric", value=False)
+            rubric_json_text = st.text_area("Rubric JSON", height=300, placeholder='{"version": "v1.0", "dimensions": {...}, "key_points": [...], "common_mistakes": [...]}')
+            
+            submitted = st.form_submit_button("Create Rubric", type="primary")
+            
+            if submitted:
+                if not version or not rubric_json_text:
+                    st.error("Please fill in version and rubric JSON")
+                else:
+                    try:
+                        rubric_json = json.loads(rubric_json_text)
+                        payload = {
+                            "version": version,
+                            "rubric_json": rubric_json,
+                            "is_active": is_active
+                        }
+                        headers = get_headers()
+                        r = requests.post(f"{API_BASE}/questions/{selected_question_id}/rubrics", json=payload, headers=headers, timeout=10)
+                        if r.status_code == 201:
+                            st.success("Rubric created successfully!")
+                            st.rerun()
+                        else:
+                            st.error(f"Creation failed: {r.status_code} {r.text}")
+                    except json.JSONDecodeError as e:
+                        st.error(f"JSON format error: {e}")
+                    except Exception as e:
+                        st.error(f"Creation failed: {e}")

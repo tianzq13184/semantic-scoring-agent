@@ -10,107 +10,85 @@ TOPIC_DEFAULT = {
         "version": "topic-airflow-v1",
         "dimensions": {"accuracy":1, "structure":1, "clarity":1, "business":1, "language":1},
         "key_points": [
-            "DAG/Task 语义与调度周期",
-            "依赖与重试策略",
-            "Idempotency 与可重复运行",
-            "监控与告警（SLAs/回填）",
-            "资源/队列/并发控制"
+            "DAG/Task semantics and scheduling cycles",
+            "Dependencies and retry strategies",
+            "Idempotency and repeatable execution",
+            "Monitoring and alerting (SLAs/backfill)",
+            "Resource/queue/concurrency control"
         ],
         "common_mistakes": [
-            "只谈工具不谈trade-off",
-            "忽略依赖与失败恢复",
-            "缺少业务例子或影响"
+            "Only discussing tools without trade-offs",
+            "Ignoring dependencies and failure recovery",
+            "Lacking business examples or impact"
         ]
     }
 }
 
 
 def load_manual_rubric(question_id: str) -> Optional[dict]:
-    """
-    从数据库加载题目的评分标准
-    
-    优先返回激活的评分标准，如果没有激活的则返回最新的
-    """
-    import time
-    logger.debug(f"[load_manual_rubric] 开始加载评分标准: question_id={question_id}")
-    start_time = time.time()
+    """Load rubric for question from database. Prioritize active rubric, otherwise return latest."""
     sess = SessionLocal()
     try:
-        # 优先查找激活的评分标准
-        logger.debug(f"[load_manual_rubric] 查询激活的评分标准")
         active_rubric = sess.query(QuestionRubric).filter(
             QuestionRubric.question_id == question_id,
             QuestionRubric.is_active == True
         ).first()
         
         if active_rubric:
-            elapsed = time.time() - start_time
-            logger.info(f"[load_manual_rubric] 从数据库加载激活的评分标准: question_id={question_id} -> {active_rubric.version}, 耗时={elapsed:.3f}s")
             return active_rubric.rubric_json
         
-        # 如果没有激活的，查找最新的评分标准
-        logger.debug(f"[load_manual_rubric] 未找到激活的评分标准，查询最新的")
         latest_rubric = sess.query(QuestionRubric).filter(
             QuestionRubric.question_id == question_id
         ).order_by(QuestionRubric.created_at.desc()).first()
         
         if latest_rubric:
-            elapsed = time.time() - start_time
-            logger.info(f"[load_manual_rubric] 从数据库加载最新的评分标准: question_id={question_id} -> {latest_rubric.version}, 耗时={elapsed:.3f}s")
             return latest_rubric.rubric_json
         
-        elapsed = time.time() - start_time
-        logger.debug(f"[load_manual_rubric] 未找到评分标准: question_id={question_id}, 耗时={elapsed:.3f}s")
         return None
     except Exception as e:
-        elapsed = time.time() - start_time
-        logger.error(f"[load_manual_rubric] 加载评分标准失败: question_id={question_id}, 错误: {e}, 耗时={elapsed:.3f}s")
+        logger.error(f"Failed to load rubric: question_id={question_id}, error: {e}")
         return None
     finally:
         sess.close()
 
 
 def generate_rubric_by_llm(question_text: str, topic: Optional[str] = None) -> dict:
-    """
-    使用 LLM 自动生成评分标准
-    
-    返回格式化的 rubric dict
-    """
+    """Automatically generate rubric using LLM"""
     from .llm_client import _make_llm
     
-    prompt = f"""你是一位经验丰富的教育评估专家。请为以下题目生成一个详细的评分标准（rubric）。
+    prompt = f"""You are an experienced educational assessment expert. Please generate a detailed rubric for the following question.
 
-题目：
+Question:
 {question_text}
 
-主题：{topic if topic else "通用"}
+Topic: {topic if topic else "General"}
 
-请生成一个包含以下结构的 JSON 格式评分标准：
+Please generate a JSON-formatted rubric with the following structure:
 {{
   "version": "auto-gen-v1",
   "dimensions": {{
-    "accuracy": 1,    // 准确性权重（总和应为5）
-    "structure": 1,  // 结构权重
-    "clarity": 1,    // 清晰度权重
-    "business": 1,   // 业务理解权重
-    "language": 1    // 语言表达权重
+    "accuracy": 1,    // Accuracy weight (sum should be 5)
+    "structure": 1,  // Structure weight
+    "clarity": 1,    // Clarity weight
+    "business": 1,   // Business understanding weight
+    "language": 1    // Language expression weight
   }},
   "key_points": [
-    "关键知识点1",
-    "关键知识点2",
-    "关键知识点3"
+    "Key point 1",
+    "Key point 2",
+    "Key point 3"
   ],
   "common_mistakes": [
-    "常见错误1",
-    "常见错误2"
+    "Common mistake 1",
+    "Common mistake 2"
   ]
 }}
 
-要求：
-1. 根据题目内容，识别3-5个关键知识点
-2. 列出2-3个学生常见的错误
-3. 维度权重总和必须等于5
-4. 只返回 JSON，不要其他文字
+Requirements:
+1. Based on the question content, identify 3-5 key knowledge points
+2. List 2-3 common mistakes students make
+3. Dimension weights must sum to 5
+4. Return only JSON, no other text
 """
     
     try:
@@ -118,128 +96,93 @@ def generate_rubric_by_llm(question_text: str, topic: Optional[str] = None) -> d
         resp = llm.invoke(prompt)
         text = resp.content.strip()
         
-        # 尝试解析 JSON
         try:
             rubric = json.loads(text)
         except json.JSONDecodeError:
-            # 如果直接解析失败，尝试提取 JSON 部分
             import re
             json_match = re.search(r'\{.*\}', text, re.DOTALL)
             if json_match:
                 rubric = json.loads(json_match.group())
             else:
-                raise ValueError("无法从 LLM 响应中提取有效的 JSON")
+                raise ValueError("Unable to extract valid JSON from LLM response")
         
-        # 验证和规范化
         if "version" not in rubric:
             rubric["version"] = "auto-gen-v1"
         
-        # 确保维度权重总和为5
         if "dimensions" in rubric:
             total_weight = sum(rubric["dimensions"].values())
             if total_weight != 5:
-                # 按比例调整
                 scale = 5.0 / total_weight
                 rubric["dimensions"] = {k: v * scale for k, v in rubric["dimensions"].items()}
         
-        logger.info(f"LLM 成功生成评分标准，版本: {rubric.get('version')}")
         return rubric
         
     except Exception as e:
-        logger.error(f"LLM 生成评分标准失败: {e}")
-        # 返回默认模板
+        logger.error(f"LLM failed to generate rubric: {e}")
         return {
             "version": "auto-gen-v1",
             "dimensions": {"accuracy":1, "structure":1, "clarity":1, "business":1, "language":1},
-            "key_points": ["核心概念", "实现步骤", "常见坑", "业务影响"],
-            "common_mistakes": ["泛泛而谈", "缺少例子", "未提trade-off"]
+            "key_points": ["Core concepts", "Implementation steps", "Common pitfalls", "Business impact"],
+            "common_mistakes": ["Too general", "Lack of examples", "No trade-offs mentioned"]
         }
 
 
 def save_rubric_to_db(question_id: str, rubric: dict, created_by: Optional[str] = None) -> bool:
-    """
-    将评分标准保存到数据库
-    
-    如果已存在相同版本的评分标准，则不保存
-    """
+    """Save rubric to database. If rubric with same version already exists, do not save."""
     sess = SessionLocal()
     try:
         version = rubric.get("version", "auto-gen-v1")
         
-        # 检查是否已存在
         existing = sess.query(QuestionRubric).filter(
             QuestionRubric.question_id == question_id,
             QuestionRubric.version == version
         ).first()
         
         if existing:
-            logger.info(f"评分标准已存在: {question_id} -> {version}")
             return False
         
-        # 创建新的评分标准
         new_rubric = QuestionRubric(
             question_id=question_id,
             version=version,
             rubric_json=rubric,
-            is_active=False,  # 自动生成的默认不激活
+            is_active=False,
             created_by=created_by or "system"
         )
         sess.add(new_rubric)
         sess.commit()
-        
-        logger.info(f"评分标准已保存到数据库: {question_id} -> {version}")
         return True
         
     except Exception as e:
         sess.rollback()
-        logger.error(f"保存评分标准失败: {question_id}, 错误: {e}")
+        logger.error(f"Failed to save rubric: {question_id}, error: {e}")
         return False
     finally:
         sess.close()
 
 
 def get_rubric(question_id: str, topic: str, provided: Optional[dict] = None, question_text: Optional[str] = None) -> Tuple[dict, str]:
-    """
-    获取评分标准，按优先级回退：
-    1. 用户提供的 (provided)
-    2. 数据库中的 (load_manual_rubric)
-    3. 主题默认的 (TOPIC_DEFAULT)
-    4. LLM 自动生成的 (generate_rubric_by_llm)
-    
-    如果使用 LLM 生成，会自动保存到数据库
-    """
-    # 优先级1: 用户提供的
+    """Get rubric with priority fallback: user provided -> database -> topic default -> LLM auto-generated"""
     if provided:
-        logger.info(f"使用用户提供的评分标准: {question_id}")
         return provided, provided.get("version", "manual-provided")
     
-    # 优先级2: 从数据库加载
     manual = load_manual_rubric(question_id)
     if manual:
         return manual, manual.get("version", "manual-v1")
     
-    # 优先级3: 主题默认
     topic_rubric = TOPIC_DEFAULT.get(topic)
     if topic_rubric:
-        logger.info(f"使用主题默认评分标准: {question_id} -> {topic}")
         return topic_rubric, topic_rubric["version"]
     
-    # 优先级4: LLM 自动生成
-    logger.info(f"使用 LLM 自动生成评分标准: {question_id}")
     if not question_text:
-        # 如果没有提供题目文本，使用通用模板
         auto = {
             "version": "auto-gen-v1",
             "dimensions": {"accuracy":1, "structure":1, "clarity":1, "business":1, "language":1},
-            "key_points": ["核心概念", "实现步骤", "常见坑", "业务影响"],
-            "common_mistakes": ["泛泛而谈", "缺少例子", "未提trade-off"]
+            "key_points": ["Core concepts", "Implementation steps", "Common pitfalls", "Business impact"],
+            "common_mistakes": ["Too general", "Lack of examples", "No trade-offs mentioned"]
         }
         return auto, auto["version"]
     
-    # 使用 LLM 生成
     auto_rubric = generate_rubric_by_llm(question_text, topic)
-    
-    # 保存到数据库
     save_rubric_to_db(question_id, auto_rubric, created_by="system")
     
     return auto_rubric, auto_rubric.get("version", "auto-gen-v1")

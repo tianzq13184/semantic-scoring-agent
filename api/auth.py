@@ -1,6 +1,6 @@
 """
-简化的权限系统
-支持两个角色：学生（student）和老师（teacher）
+Simplified permission system
+Supports two roles: student and teacher
 """
 from enum import Enum
 from typing import Optional
@@ -8,16 +8,16 @@ from fastapi import HTTPException, Header, Depends
 from .db import SessionLocal, User
 
 class UserRole(str, Enum):
-    """用户角色"""
-    STUDENT = "student"  # 学生：答题、浏览结果
-    TEACHER = "teacher"  # 老师：管理、判分
+    """User role"""
+    STUDENT = "student"  # Student: answer questions, browse results
+    TEACHER = "teacher"  # Teacher: manage, grade
 
 
 def get_current_user(token: Optional[str] = Header(None, alias="X-User-Token")) -> Optional[dict]:
     """
-    从请求头获取当前用户
-    简化实现：使用 X-User-Token 头传递用户ID
-    实际生产环境应该使用JWT等更安全的认证方式
+    Get current user from request header
+    Simplified implementation: use X-User-Token header to pass user ID
+    Production environment should use more secure authentication methods like JWT
     """
     if not token:
         return None
@@ -38,18 +38,18 @@ def get_current_user(token: Optional[str] = Header(None, alias="X-User-Token")) 
 
 def require_role(allowed_roles: list[UserRole]):
     """
-    权限检查装饰器
-    只允许指定角色的用户访问
+    Permission check decorator
+    Only allows users with specified roles to access
     """
     def role_checker(current_user: Optional[dict] = Depends(get_current_user)):
         if not current_user:
-            raise HTTPException(status_code=401, detail="需要登录")
+            raise HTTPException(status_code=401, detail="Login required")
         
         user_role = UserRole(current_user["role"])
         if user_role not in allowed_roles:
             raise HTTPException(
                 status_code=403, 
-                detail=f"权限不足。需要角色: {', '.join([r.value for r in allowed_roles])}"
+                detail=f"Insufficient permissions. Required roles: {', '.join([r.value for r in allowed_roles])}"
             )
         
         return current_user
@@ -57,7 +57,7 @@ def require_role(allowed_roles: list[UserRole]):
     return role_checker
 
 
-# 便捷的权限检查依赖
+# Convenient permission check dependencies
 require_teacher = require_role([UserRole.TEACHER])
 require_student = require_role([UserRole.STUDENT])
 require_any = require_role([UserRole.STUDENT, UserRole.TEACHER])

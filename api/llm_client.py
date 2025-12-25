@@ -84,45 +84,21 @@ Only return valid JSON, no extra text.
 """
 
 def call_llm(question_text:str, rubric:dict, student_answer:str) -> Dict[str, Any]:
-    """
-    调用 LLM 进行评分
-    
-    注意：如果看到此函数的日志，说明 mock 可能没有生效！
-    """
-    logger.warning("[call_llm] ⚠️ LLM调用开始 - 如果这是测试，说明mock可能失效！")
-    call_start = time.time()
-    
+    """Call LLM for scoring"""
     try:
-        logger.debug("[call_llm] 步骤1: 创建LLM实例")
-        llm_start = time.time()
         llm = _make_llm()
-        logger.debug(f"[call_llm] LLM实例创建完成, 耗时={time.time()-llm_start:.3f}s")
-        
-        logger.debug("[call_llm] 步骤2: 构建prompt")
         prompt = build_prompt(question_text, rubric, student_answer)
-        logger.debug(f"[call_llm] Prompt构建完成, 长度={len(prompt)}")
-        
-        logger.debug("[call_llm] 步骤3: 调用LLM invoke")
-        invoke_start = time.time()
         resp = llm.invoke(prompt)
-        invoke_time = time.time() - invoke_start
-        logger.debug(f"[call_llm] LLM invoke完成, 耗时={invoke_time:.3f}s")
-        
         text = resp.content.strip()
-        logger.debug(f"[call_llm] 步骤4: 解析JSON响应, 响应长度={len(text)}")
         
         try:
             result = json.loads(text)
-            logger.debug(f"[call_llm] JSON解析成功, total_score={result.get('total_score', 'N/A')}")
-            logger.warning(f"[call_llm] ⚠️ LLM调用完成 - 总耗时={time.time()-call_start:.3f}s")
             return result
         except Exception as parse_error:
-            logger.warning(f"[call_llm] 第一次JSON解析失败, 尝试重新调用: {parse_error}")
+            logger.warning(f"JSON parse failed, retrying: {parse_error}")
             resp2 = llm.invoke(prompt + "\nReturn JSON only.")
             result = json.loads(resp2.content.strip())
-            logger.debug(f"[call_llm] 第二次JSON解析成功")
-            logger.warning(f"[call_llm] ⚠️ LLM调用完成 - 总耗时={time.time()-call_start:.3f}s")
             return result
     except Exception as e:
-        logger.error(f"[call_llm] LLM调用异常: {e}, 耗时={time.time()-call_start:.3f}s")
+        logger.error(f"LLM call failed: {e}")
         raise

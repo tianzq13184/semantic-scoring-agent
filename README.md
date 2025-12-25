@@ -1,162 +1,242 @@
 # Semantic Scoring Agent
 
-一个基于大语言模型（LLM）的智能答案评估系统，用于自动评估学生的短答案题目，提供多维度评分和改进建议。
+An intelligent answer evaluation system based on Large Language Models (LLM) for automatically evaluating student short-answer questions, providing multi-dimensional scoring and improvement suggestions.
 
-## 📋 项目简介
+## Project Introduction
 
-Semantic Scoring Agent 是一个教育评估工具，通过 LLM 对学生的短答案进行自动化评分。系统支持：
-- 多维度评分（准确性、结构、清晰度、业务理解、语言表达）
-- 关键点评估
-- 改进建议生成
-- 评估结果持久化存储
-- 灵活的评分标准（Rubric）配置
+Semantic Scoring Agent is an educational assessment tool that uses LLM to automatically score student short answers. The system supports:
+- Multi-dimensional scoring (accuracy, structure, clarity, business understanding, language expression)
+- Key point evaluation
+- Improvement suggestion generation
+- Evaluation result persistence
+- Flexible Rubric configuration
 
-## ✨ 功能特性
+## Features
 
-- 🤖 **智能评分**：使用 LLM 对答案进行多维度自动评分（0-10分）
-- 📊 **维度分析**：提供准确性、结构、清晰度、业务理解、语言表达等维度的详细评分
-- 🎯 **关键点检查**：自动识别答案是否覆盖了关键知识点
-- 💡 **改进建议**：生成具体的、可操作的改进建议
-- 📝 **自定义评分标准**：支持通过 JSON 配置自定义评分标准
-- 💾 **结果存储**：所有评估结果自动保存到数据库
-- 🌐 **Web UI**：提供友好的 Streamlit 界面
-- 🔌 **RESTful API**：提供 FastAPI 后端接口
+- **Intelligent Scoring**: Uses LLM to automatically score answers across multiple dimensions (0-10 points)
+- **Dimension Analysis**: Provides detailed scoring across dimensions such as accuracy, structure, clarity, business understanding, and language expression
+- **Key Point Checking**: Automatically identifies whether answers cover key knowledge points
+- **Improvement Suggestions**: Generates specific, actionable improvement recommendations
+- **Custom Rubrics**: Supports custom rubric configuration via JSON
+- **Result Storage**: All evaluation results are automatically saved to the database
+- **Web UI**: Provides a friendly Streamlit interface
+- **RESTful API**: Provides FastAPI backend interface
 
-## 🛠️ 技术栈
+## Tech Stack
 
-- **后端框架**：FastAPI
-- **前端框架**：Streamlit
-- **LLM 集成**：LangChain + OpenAI/OpenRouter
-- **数据库**：SQLite（可配置为其他数据库）
-- **ORM**：SQLAlchemy
-- **数据验证**：Pydantic
-- **Python 版本**：3.8+
+- **Backend Framework**: FastAPI
+- **Frontend Framework**: Streamlit
+- **LLM Integration**: LangChain + OpenAI/OpenRouter
+- **Database**: SQLite (can be configured to other databases)
+- **ORM**: SQLAlchemy
+- **Data Validation**: Pydantic
+- **Python Version**: 3.8+
 
-## 📦 安装
+## Installation
 
-### 1. 克隆项目
+### 1. Clone the project
 
 ```bash
 git clone <repository-url>
 cd semantic-scoring-agent
 ```
 
-### 2. 安装依赖
+### 2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 环境配置
+### 3. Environment configuration
 
-创建 `.env` 文件并配置以下环境变量：
+Create a `.env` file and configure the following environment variables:
 
 ```env
-# LLM 配置（必需）
+# LLM configuration (required)
 OPENAI_API_KEY=your_api_key_here
 
-# 可选：使用 OpenRouter
+# Optional: Use OpenRouter
 # OPENROUTER_API_KEY=your_openrouter_key
 # OPENAI_BASE_URL=https://openrouter.ai/api/v1
 # LLM_PROVIDER=openrouter
 
-# 模型配置（可选，默认使用 gpt-4o-mini）
+# Model configuration (optional, default is gpt-4o-mini)
 MODEL_ID=gpt-4o-mini
-# 或
+# or
 MODEL_NAME=gpt-4o-mini
 
-# 数据库配置（可选，默认使用 SQLite）
+# Database configuration (optional, default is SQLite)
 DB_URL=sqlite:///./answer_eval.db
 
-# API 基础 URL（UI 使用，可选）
+# API base URL (for UI, optional)
 API_BASE=http://127.0.0.1:8000
 
-# 自动运行迁移（可选，仅开发环境）
+# Auto-run migrations (optional, development only)
 # AUTO_MIGRATE=true
 ```
 
-### 4. 初始化数据库
+### 4. Initialize database and users
 
-首次运行前，需要初始化数据库并迁移数据：
+Before first run, initialize the database and create default users:
 
 ```bash
+# Initialize database and migrate data
 python run_migrations.py
+
+# Create default users (teacher and student)
+python init_users.py
 ```
 
-这将创建所有必要的数据库表，并将硬编码的题目数据迁移到数据库中。
+This will create all necessary database tables, migrate hardcoded question data, and create default users:
+- Teacher: `teacher001` (Teacher Zhang)
+- Student: `student001` (Student 1)
 
-### 5. 运行测试（可选）
+### 5. Run tests (optional)
 
 ```bash
-# 安装测试依赖
+# Install test dependencies
 pip install pytest pytest-asyncio httpx pytest-mock faker
 
-# 运行核心功能测试
+# Run core functionality tests
 pytest tests/test_models/ tests/test_db/ tests/test_services/ -v
 
-# 运行所有测试（需要 langchain-openai）
+# Run all tests (requires langchain-openai)
 pytest tests/ -v
 ```
 
-**测试统计**: 38个核心测试全部通过 ✅
+**Test Statistics**: 38 core tests all passed
 
-## 🚀 使用方法
+## Usage
 
-### 启动后端 API
+### Start backend API
 
-**方法1：从项目根目录运行（推荐）**
+**Important**: Must run from project root directory, not from the `api` directory.
 
 ```bash
-# 在项目根目录运行
+# Run from project root (recommended)
 uvicorn api.main:app --reload --port 8000
 ```
 
-**方法2：从 api 目录运行**
-
+**Wrong way** (will cause import errors):
 ```bash
 cd api
-uvicorn main:app --reload --port 8000 --app-dir ..
+uvicorn main:app --reload --port 8000  # This will fail
 ```
 
-或者使用 Python 模块方式：
+API documentation will be automatically generated at: http://127.0.0.1:8000/docs
 
-```bash
-cd api
-python -m uvicorn main:app --reload --port 8000
-```
+### Start frontend UI
 
-API 文档将自动生成在：http://127.0.0.1:8000/docs
-
-### 启动前端 UI
+Open a second terminal window:
 
 ```bash
 cd ui
 streamlit run app.py
 ```
 
-UI 将在浏览器中自动打开，默认地址：http://localhost:8501
+UI will automatically open in browser, default address: http://localhost:8501
 
-### 使用 API
+### Quick Start Summary
 
-#### 评估答案
+1. **Terminal 1 - Backend**:
+   ```bash
+   uvicorn api.main:app --reload --port 8000
+   ```
+
+2. **Terminal 2 - Frontend**:
+   ```bash
+   cd ui
+   streamlit run app.py
+   ```
+
+3. **Access the UI**: http://localhost:8501
+   - Login with `teacher001` (Teacher) or `student001` (Student)
+   - Use different features based on your role
+
+### Common Issues
+
+#### Port already in use
+
+If you encounter `ERROR: [Errno 48] Address already in use` when starting:
+
+**Method 1: Stop the process using the port (recommended)**
+```bash
+# Find process using port 8000
+lsof -ti:8000
+
+# Stop the process (replace PID with actual process ID)
+kill <PID>
+
+# Or force stop
+kill -9 <PID>
+
+# Stop all uvicorn processes
+pkill -f "uvicorn.*api.main"
+```
+
+**Method 2: Use a different port**
+```bash
+# Backend: Use port 8001
+uvicorn api.main:app --reload --port 8001
+
+# Frontend: Use port 8502
+streamlit run app.py --server.port 8502
+```
+Then update `API_BASE=http://127.0.0.1:8001` in the `.env` file
+
+#### Database errors
+
+If you encounter database-related errors:
+
+```bash
+# Delete old database (warning: will lose data)
+rm answer_eval.db
+
+# Reinitialize
+python run_migrations.py
+python init_users.py
+```
+
+#### Import errors
+
+If you see `ImportError: attempted relative import with no known parent package`:
+
+1. **Ensure you're in project root** (not the `api` directory)
+2. **Use correct command**: `uvicorn api.main:app --reload --port 8000`
+
+#### Missing dependencies
+
+If you encounter import errors:
+
+```bash
+pip install -r requirements.txt
+```
+
+#### API Key errors
+
+Ensure `OPENAI_API_KEY` in `.env` file is correctly set.
+
+### Using the API
+
+#### Evaluate answer
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/evaluate/short-answer" \
   -H "Content-Type: application/json" \
   -d '{
     "question_id": "Q2105",
-    "student_answer": "在 Airflow 中，我可以通过定义 DAG 来管理任务依赖关系，使用 retry 参数处理失败情况..."
+    "student_answer": "In Airflow, I can manage task dependencies by defining DAGs, and use retry parameters to handle failures..."
   }'
 ```
 
-#### 使用自定义评分标准
+#### Use custom rubric
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/evaluate/short-answer" \
   -H "Content-Type: application/json" \
   -d '{
     "question_id": "Q2105",
-    "student_answer": "你的答案...",
+    "student_answer": "Your answer...",
     "rubric_json": {
       "version": "custom-v1",
       "dimensions": {
@@ -164,49 +244,92 @@ curl -X POST "http://127.0.0.1:8000/evaluate/short-answer" \
         "structure": 1,
         "clarity": 1
       },
-      "key_points": ["关键点1", "关键点2"],
-      "common_mistakes": ["常见错误1"]
+      "key_points": ["Key point 1", "Key point 2"],
+      "common_mistakes": ["Common mistake 1"]
     }
   }'
 ```
 
-## 📁 项目结构
+## Project Structure
 
 ```
 semantic-scoring-agent/
-├── api/                    # 后端 API
+├── api/                    # Backend API
 │   ├── __init__.py
-│   ├── main.py            # FastAPI 应用入口
-│   ├── models.py          # Pydantic 数据模型
-│   ├── db.py              # 数据库配置和模型
-│   ├── llm_client.py      # LLM 客户端封装
-│   └── rubric_service.py  # 评分标准服务
-├── ui/                    # 前端 UI
-│   └── app.py             # Streamlit 应用
-├── docs/                  # 文档
-│   └── PRD.md            # 产品需求文档
-├── requirements.txt       # Python 依赖
-├── answer_eval.db        # SQLite 数据库（自动生成）
-└── README.md             # 项目说明文档
+│   ├── main.py            # FastAPI application entry
+│   ├── models.py          # Pydantic data models
+│   ├── db.py              # Database configuration and models
+│   ├── auth.py            # Authentication and authorization
+│   ├── llm_client.py      # LLM client wrapper
+│   ├── rubric_service.py  # Rubric service
+│   └── migrations.py      # Database migration script
+├── ui/                    # Frontend UI
+│   └── app.py             # Streamlit application
+├── tests/                 # Test suite
+│   ├── test_models/       # Data model tests
+│   ├── test_db/           # Database model tests
+│   ├── test_services/     # Business logic tests
+│   ├── test_api/          # API endpoint tests
+│   └── test_auth/         # Authentication tests
+├── requirements.txt       # Python dependencies
+├── run_migrations.py      # Run database migrations
+├── init_users.py        # Initialize default users
+├── start_ui.sh            # UI startup script
+├── answer_eval.db        # SQLite database (auto-generated)
+└── README.md             # Project documentation
 ```
 
-## 🔌 API 文档
+## API Documentation
+
+### API Endpoints Overview
+
+The system provides **18 API endpoints**:
+
+**Evaluation related (3)**:
+- POST `/evaluate/short-answer` - Evaluate answer
+- GET `/evaluations` - Query evaluation list
+- GET `/evaluations/{evaluation_id}` - Get evaluation details
+
+**Review related (1)**:
+- POST `/review/save` - Save teacher review
+
+**Question management (5)**:
+- GET `/questions` - Query question list
+- GET `/questions/{question_id}` - Get question details
+- POST `/questions` - Create question
+- PUT `/questions/{question_id}` - Update question
+- DELETE `/questions/{question_id}` - Delete question
+
+**Rubric management (5)**:
+- GET `/questions/{question_id}/rubrics` - Query rubric list
+- GET `/rubrics/{rubric_id}` - Get rubric details
+- POST `/questions/{question_id}/rubrics` - Create rubric
+- PUT `/rubrics/{rubric_id}` - Update rubric
+- POST `/rubrics/{rubric_id}/activate` - Activate rubric
+
+**User management (3)**:
+- POST `/users` - Create user
+- GET `/users` - Get user list
+- GET `/users/{user_id}` - Get user details
+
+**Other (1)**:
+- GET `/docs` - API documentation (auto-generated by FastAPI)
 
 ### POST `/evaluate/short-answer`
 
-评估学生的短答案。
+Evaluate student short answer.
 
-**请求体**：
+**Request body**:
 ```json
 {
-  "question_id": "string",      // 必需：题目 ID
-  "student_answer": "string",   // 必需：学生答案（10-4000 字符）
-  "with_rubric": false,         // 可选：是否使用自定义评分标准
-  "rubric_json": {}             // 可选：自定义评分标准 JSON
+  "question_id": "string",      // Required: Question ID
+  "student_answer": "string",   // Required: Student answer (10-4000 characters)
+  "with_rubric": false,         // Optional: Whether to use custom rubric
+  "rubric_json": {}             // Optional: Custom rubric JSON
 }
 ```
 
-**响应**：
+**Response**:
 ```json
 {
   "question_id": "Q2105",
@@ -223,12 +346,12 @@ semantic-scoring-agent/
     "language": 1.2
   },
   "key_points_evaluation": [
-    "DAG/Task 语义与调度周期 -> covered",
-    "依赖与重试策略 -> partially covered"
+    "DAG/Task semantics and scheduling cycles -> covered",
+    "Dependencies and retry strategies -> partially covered"
   ],
   "improvement_recommendations": [
-    "建议1",
-    "建议2"
+    "Suggestion 1",
+    "Suggestion 2"
   ],
   "raw_llm_output": {}
 }
@@ -236,19 +359,19 @@ semantic-scoring-agent/
 
 ### POST `/review/save`
 
-保存教师评分覆盖。
+Save teacher score override.
 
-**请求体**：
+**Request body**:
 ```json
 {
-  "evaluation_id": 1,          // 必需：评估记录 ID
-  "final_score": 8.5,          // 必需：最终评分（0-10）
-  "review_notes": "答案很好",   // 可选：审核备注
-  "reviewer_id": "teacher001"  // 可选：审核人 ID
+  "evaluation_id": 1,          // Required: Evaluation record ID
+  "final_score": 8.5,          // Required: Final score (0-10)
+  "review_notes": "Good answer",   // Optional: Review notes
+  "reviewer_id": "teacher001"  // Optional: Reviewer ID
 }
 ```
 
-**响应**：
+**Response**:
 ```json
 {
   "success": true,
@@ -261,15 +384,15 @@ semantic-scoring-agent/
 
 ### GET `/evaluations`
 
-查询评估结果列表。
+Query evaluation result list.
 
-**查询参数**：
-- `question_id` (可选): 按题目 ID 筛选
-- `student_id` (可选): 按学生 ID 筛选
-- `limit` (可选, 默认50): 每页数量（1-100）
-- `offset` (可选, 默认0): 偏移量
+**Query parameters**:
+- `question_id` (optional): Filter by question ID
+- `student_id` (optional): Filter by student ID
+- `limit` (optional, default 50): Items per page (1-100)
+- `offset` (optional, default 0): Offset
 
-**响应**：
+**Response**:
 ```json
 {
   "total": 100,
@@ -290,15 +413,15 @@ semantic-scoring-agent/
 
 ### GET `/evaluations/{evaluation_id}`
 
-获取评估结果详情。
+Get evaluation result details.
 
-**响应**：
+**Response**:
 ```json
 {
   "id": 1,
   "question_id": "Q2105",
   "student_id": "student001",
-  "student_answer": "答案内容...",
+  "student_answer": "Answer content...",
   "auto_score": 7.5,
   "final_score": 8.5,
   "dimension_scores_json": {
@@ -307,7 +430,7 @@ semantic-scoring-agent/
   },
   "model_version": "openai:gpt-4o-mini",
   "rubric_version": "topic-airflow-v1",
-  "review_notes": "答案很好",
+  "review_notes": "Good answer",
   "reviewer_id": "teacher001",
   "raw_llm_output": {},
   "created_at": "2024-01-01T10:00:00",
@@ -317,14 +440,14 @@ semantic-scoring-agent/
 
 ### GET `/questions`
 
-查询题目列表。
+Query question list.
 
-**查询参数**：
-- `topic` (可选): 按主题筛选
-- `limit` (可选, 默认50): 每页数量（1-100）
-- `offset` (可选, 默认0): 偏移量
+**Query parameters**:
+- `topic` (optional): Filter by topic
+- `limit` (optional, default 50): Items per page (1-100)
+- `offset` (optional, default 0): Offset
 
-**响应**：
+**Response**:
 ```json
 {
   "total": 10,
@@ -332,7 +455,7 @@ semantic-scoring-agent/
     {
       "id": 1,
       "question_id": "Q2105",
-      "text": "简述如何在 Airflow 中实现可靠的依赖管理与失败恢复。",
+      "text": "Briefly describe how to implement reliable dependency management and failure recovery in Airflow.",
       "topic": "airflow",
       "created_at": "2024-01-01T10:00:00",
       "updated_at": "2024-01-01T10:00:00"
@@ -343,14 +466,14 @@ semantic-scoring-agent/
 
 ### GET `/questions/{question_id}`
 
-获取题目详情。
+Get question details.
 
-**响应**：
+**Response**:
 ```json
 {
   "id": 1,
   "question_id": "Q2105",
-  "text": "简述如何在 Airflow 中实现可靠的依赖管理与失败恢复。",
+  "text": "Briefly describe how to implement reliable dependency management and failure recovery in Airflow.",
   "topic": "airflow",
   "created_at": "2024-01-01T10:00:00",
   "updated_at": "2024-01-01T10:00:00",
@@ -361,44 +484,44 @@ semantic-scoring-agent/
 
 ### POST `/questions`
 
-创建新题目。
+Create new question.
 
-**请求体**：
+**Request body**:
 ```json
 {
   "question_id": "Q2106",
-  "text": "题目文本",
+  "text": "Question text",
   "topic": "airflow"
 }
 ```
 
-**响应**：返回创建的题目信息（格式同 GET `/questions/{question_id}`）
+**Response**: Returns created question information (same format as GET `/questions/{question_id}`)
 
 ### PUT `/questions/{question_id}`
 
-更新题目。
+Update question.
 
-**请求体**：
+**Request body**:
 ```json
 {
-  "text": "更新后的题目文本",
+  "text": "Updated question text",
   "topic": "updated-topic"
 }
 ```
 
-**响应**：返回更新后的题目信息
+**Response**: Returns updated question information
 
 ### DELETE `/questions/{question_id}`
 
-删除题目（会级联删除关联的评分标准）。
+Delete question (will cascade delete associated rubrics).
 
-**响应**：204 No Content
+**Response**: 204 No Content
 
 ### GET `/questions/{question_id}/rubrics`
 
-查询题目的评分标准列表。
+Query question rubric list.
 
-**响应**：
+**Response**:
 ```json
 {
   "total": 2,
@@ -417,9 +540,9 @@ semantic-scoring-agent/
 
 ### GET `/rubrics/{rubric_id}`
 
-获取评分标准详情。
+Get rubric details.
 
-**响应**：
+**Response**:
 ```json
 {
   "id": 1,
@@ -439,9 +562,9 @@ semantic-scoring-agent/
 
 ### POST `/questions/{question_id}/rubrics`
 
-为题目创建评分标准。
+Create rubric for question.
 
-**请求体**：
+**Request body**:
 ```json
 {
   "version": "custom-v2",
@@ -456,13 +579,13 @@ semantic-scoring-agent/
 }
 ```
 
-**响应**：返回创建的评分标准详情
+**Response**: Returns created rubric details
 
 ### PUT `/rubrics/{rubric_id}`
 
-更新评分标准。
+Update rubric.
 
-**请求体**：
+**Request body**:
 ```json
 {
   "rubric_json": {...},
@@ -470,13 +593,13 @@ semantic-scoring-agent/
 }
 ```
 
-**响应**：返回更新后的评分标准详情
+**Response**: Returns updated rubric details
 
 ### POST `/rubrics/{rubric_id}/activate`
 
-激活评分标准（会自动取消同题目的其他激活评分标准）。
+Activate rubric (will automatically deactivate other active rubrics for the same question).
 
-**响应**：
+**Response**:
 ```json
 {
   "success": true,
@@ -487,65 +610,73 @@ semantic-scoring-agent/
 }
 ```
 
-## 📊 数据库模型
+## Database Models
+
+### User
+
+User table, contains the following fields:
+- `id`: Primary key (user ID, e.g., "teacher001", "student001")
+- `username`: User name
+- `role`: User role ("student" or "teacher")
+- `created_at`: Creation time
 
 ### Question
 
-题目表，包含以下字段：
-- `id`: 主键
-- `question_id`: 题目唯一标识（如 "Q2105"）
-- `text`: 题目文本
-- `topic`: 题目主题（如 "airflow"）
-- `created_at`: 创建时间
-- `updated_at`: 更新时间
+Question table, contains the following fields:
+- `id`: Primary key
+- `question_id`: Question unique identifier (e.g., "Q2105")
+- `text`: Question text
+- `topic`: Question topic (e.g., "airflow")
+- `created_at`: Creation time
+- `updated_at`: Update time
 
 ### QuestionRubric
 
-评分标准表，包含以下字段：
-- `id`: 主键
-- `question_id`: 关联题目ID（外键）
-- `version`: 评分标准版本
-- `rubric_json`: 评分标准JSON（包含dimensions, key_points, common_mistakes等）
-- `is_active`: 是否激活
-- `created_by`: 创建者
-- `created_at`: 创建时间
+Rubric table, contains the following fields:
+- `id`: Primary key
+- `question_id`: Associated question ID (foreign key)
+- `version`: Rubric version
+- `rubric_json`: Rubric JSON (contains dimensions, key_points, common_mistakes, etc.)
+- `is_active`: Whether activated
+- `created_by`: Creator
+- `created_at`: Creation time
 
 ### AnswerEvaluation
 
-评估结果表，包含以下字段：
-- `id`: 主键
-- `question_id`: 题目 ID（外键）
-- `student_id`: 学生 ID（可选）
-- `student_answer`: 学生答案
-- `auto_score`: 自动评分（0-10）
-- `final_score`: 最终评分（可选，用于教师覆盖）
-- `dimension_scores_json`: 维度评分 JSON
-- `model_version`: 使用的模型版本
-- `rubric_version`: 使用的评分标准版本
-- `raw_llm_output`: 原始 LLM 输出
-- `reviewer_id`: 审核教师ID（可选）
-- `review_notes`: 审核备注（可选）
-- `created_at`: 创建时间
-- `updated_at`: 更新时间
+Evaluation result table, contains the following fields:
+- `id`: Primary key
+- `question_id`: Question ID (foreign key, SET NULL on delete)
+- `student_id`: Student ID (optional, foreign key to User, SET NULL on delete)
+- `student_answer`: Student answer
+- `auto_score`: Auto score (0-10)
+- `final_score`: Final score (optional, for teacher override)
+- `dimension_scores_json`: Dimension scores JSON
+- `model_version`: Model version used
+- `rubric_version`: Rubric version used
+- `raw_llm_output`: Raw LLM output
+- `reviewer_id`: Reviewer teacher ID (optional, foreign key to User)
+- `review_notes`: Review notes (optional)
+- `created_at`: Creation time
+- `updated_at`: Update time
 
-## 🎯 评分标准（Rubric）
+## Rubrics
 
-系统支持四种评分标准来源（按优先级自动选择）：
+The system supports four rubric sources (automatically selected by priority):
 
-1. **用户提供的 JSON**：通过 API 请求中的 `rubric_json` 传入
-2. **数据库中的评分标准**：从 `question_rubrics` 表加载（优先使用激活的评分标准）
-3. **主题默认评分标准**：基于题目主题的默认标准（如 `airflow` 主题）
-4. **LLM 自动生成**：如果以上都不存在，系统会使用 LLM 自动生成评分标准并保存到数据库
+1. **User-provided JSON**: Passed via `rubric_json` in API request
+2. **Database rubric**: Loaded from `question_rubrics` table (prioritizes active rubrics)
+3. **Topic default rubric**: Default standard based on question topic (e.g., `airflow` topic)
+4. **LLM auto-generated**: If none of the above exist, system uses LLM to auto-generate rubric and save to database
 
-### 评分标准回退逻辑
+### Rubric fallback logic
 
 ```
-用户提供 → 数据库查询 → 主题默认 → LLM 自动生成
+User provided → Database query → Topic default → LLM auto-generated
 ```
 
-系统会自动选择最合适的评分标准，确保每次评估都有可用的评分依据。
+The system automatically selects the most appropriate rubric, ensuring every evaluation has available scoring criteria.
 
-### 评分标准格式
+### Rubric format
 
 ```json
 {
@@ -556,30 +687,31 @@ semantic-scoring-agent/
     "clarity": 1,
     "business": 1,
     "language": 1
-  }, b v
-    "关键点1",
-    "关键点2"
+  },
+  "key_points": [
+    "Key point 1",
+    "Key point 2"
   ],
   "common_mistakes": [
-    "常见错误1",
-    "常见错误2"
+    "Common mistake 1",
+    "Common mistake 2"
   ]
 }
 ```
 
-## 🔧 配置说明
+## Configuration
 
-### LLM 提供商
+### LLM Providers
 
-系统支持多种 LLM 提供商：
+The system supports multiple LLM providers:
 
-1. **OpenAI**（默认）：
+1. **OpenAI** (default):
    ```env
    OPENAI_API_KEY=sk-...
    MODEL_ID=gpt-4o-mini
    ```
 
-2. **OpenRouter**：
+2. **OpenRouter**:
    ```env
    OPENAI_BASE_URL=https://openrouter.ai/api/v1
    OPENAI_API_KEY=sk-or-...
@@ -587,62 +719,149 @@ semantic-scoring-agent/
    OPENROUTER_TITLE=Your App Name
    ```
 
-3. **自定义 OpenAI 兼容 API**：
+3. **Custom OpenAI-compatible API**:
    ```env
    OPENAI_BASE_URL=https://your-api.com/v1
    OPENAI_API_KEY=your-key
    ```
 
-## 🧪 测试
+## Authentication and Authorization
 
-项目包含完整的测试套件，覆盖核心功能：
+The system implements a simplified permission system with two roles:
 
-### 测试统计
+### Roles
 
-- **核心测试**: 38个测试全部通过 ✅
-- **数据模型测试**: 19个 ✅
-- **数据库模型测试**: 9个 ✅
-- **业务逻辑测试**: 10个 ✅
+- **Student (student)**: Answer questions, view own results
+- **Teacher (teacher)**: Manage, grade, view all results
 
-### 运行测试
+### Authentication
+
+- **Header**: `X-User-Token: {user_id}`
+- **Frontend**: Automatically adds authentication header after login
+- **Backend**: Validates user and role from database
+
+### Permission Matrix
+
+| Feature | Student | Teacher |
+|---------|---------|---------|
+| Answer questions | Yes | Yes |
+| View own results | Yes | Yes |
+| View all results | No | Yes |
+| Review/Grade | No | Yes |
+| Question management | No | Yes |
+| Rubric management | No | Yes |
+| User management | No | Yes |
+
+### Create New Users
+
+**Via API (requires teacher permission)**:
+```bash
+curl -X POST "http://127.0.0.1:8000/users" \
+  -H "X-User-Token: teacher001" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "student002",
+    "username": "Student 2",
+    "role": "student"
+  }'
+```
+
+**Via Python script**:
+```python
+from api.db import SessionLocal, User
+
+sess = SessionLocal()
+try:
+    user = User(id="student002", username="Student 2", role="student")
+    sess.add(user)
+    sess.commit()
+finally:
+    sess.close()
+```
+
+## Testing
+
+The project includes a complete test suite covering core functionality:
+
+### Test Statistics
+
+- **Core tests**: 38 tests all passed
+- **Data model tests**: 19
+- **Database model tests**: 9
+- **Business logic tests**: 10
+
+### Run tests
 
 ```bash
-# 运行核心功能测试（不需要额外依赖）
+# Run all tests
+pytest tests/
+
+# Run core functionality tests (no additional dependencies required)
 pytest tests/test_models/ tests/test_db/ tests/test_services/ -v
 
-# 运行所有测试（需要 langchain-openai）
+# Run specific test modules
+pytest tests/test_models/
+pytest tests/test_db/
+pytest tests/test_services/
+
+# Run with coverage
+pytest --cov=api --cov-report=html
+
+# Run all tests (requires langchain-openai)
 pip install langchain-openai
 pytest tests/ -v
 ```
 
-详细测试说明请查看 [tests/README.md](tests/README.md)
+### Test Structure
 
-## 📝 开发计划
+- `test_models/`: Data model validation tests (19 tests)
+- `test_db/`: Database model and relationship tests (9 tests)
+- `test_services/`: Business logic tests (10 tests, 2 skipped)
+- `test_api/`: API endpoint tests (requires langchain-openai)
 
-### 已完成 ✅
-- [x] 实现教师评分覆盖功能（`/review/save` 接口）
-- [x] 支持从数据库加载题目特定的评分标准
-- [x] 实现评估结果查询接口（`/evaluations`）
-- [x] 完善教师审核 UI 界面
-- [x] 题目管理接口（CRUD）
-- [x] 评分标准管理接口
-- [x] 建立完整的测试框架（38个测试通过）
+### Notes
 
-### 计划中 📋
-- [ ] 添加更多题目示例
-- [ ] 支持批量评估
-- [ ] 添加评估结果统计和分析功能
-- [ ] 支持多语言
+1. Tests use SQLite in-memory database, each test case is independent
+2. LLM calls are mocked, no actual API calls
+3. Test data provided through fixtures
+4. Some tests require langchain_openai module (marked as skip)
 
-## 🤝 贡献
+## Development Plan
 
-欢迎提交 Issue 和 Pull Request！
+### Completed
+- [x] Implement teacher score override functionality (`/review/save` endpoint)
+- [x] Support loading question-specific rubrics from database
+- [x] Implement evaluation result query endpoints (`/evaluations`)
+- [x] Complete teacher review UI interface
+- [x] Question management endpoints (CRUD)
+- [x] Rubric management endpoints
+- [x] Establish complete test framework (38 tests passed)
 
-## 📄 许可证
+### Planned
+- [ ] Add more question examples
+- [ ] Support batch evaluation
+- [ ] Add evaluation result statistics and analysis features
+- [ ] Support multiple languages
 
-[待添加]
+## Verification
 
-## 👥 作者
+Run tests to verify the system is working correctly:
 
-[待添加]
+```bash
+# Run core functionality tests
+pytest tests/test_models/ tests/test_db/ tests/test_services/ -v
+```
 
+Expected result: `38 passed`
+
+## Contributing
+
+Welcome to submit Issues and Pull Requests!
+
+## License
+
+[To be added]
+
+## Authors
+
+[To be added]
